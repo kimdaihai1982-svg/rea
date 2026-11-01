@@ -8,6 +8,8 @@ from pathlib import Path
 import tempfile
 import sys
 import threading
+import socket
+import base64
 import unittest
 from unittest.mock import patch
 
@@ -121,6 +123,44 @@ class DashboardTests(unittest.TestCase):
         with patch.object(server,'agent',return_value=(200,{'folders':{},'databases':{}})) as broker:
             self.assertEqual(self.req('GET','/api/resources',cookie=cookie)[0],200)
             broker.assert_called_once_with({'action':'resources'})
+
+    def test_native_files_http_to_unix_agent_real_filesystem(self):
+        spec = importlib.util.spec_from_file_location('file_integration_agent', ROOT/'dashboard/agent.py')
+        broker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(broker)
+        root = Path(self.temp.name)/'stack'
+        (root/'projects/demo/public').mkdir(parents=True)
+        broker.ROOT = root
+        path = str(Path(self.temp.name)/'agent.sock')
+        unix = broker.Server(path,broker.Handler)
+        threading.Thread(target=unix.serve_forever,daemon=True).start()
+        self.addCleanup(unix.server_close)
+        self.addCleanup(unix.shutdown)
+        def transport(payload):
+            c=http.client.HTTPConnection('localhost',timeout=5)
+            c.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+            c.sock.settimeout(5);c.sock.connect(path)
+            c.request('POST','/',json.dumps(payload),{'Content-Type':'application/json'})
+            r=c.getresponse();body=json.loads(r.read());status=r.status;c.close()
+            return status,body
+        cookie,csrf=self.login()
+        content='xin chao '*1200
+        with patch.object(server,'agent',side_effect=transport):
+            self.assertEqual(self.req('GET','/api/files?path=demo')[0],401)
+            code,_,body=self.req('POST','/api/action',{'action':'file-upload','path':'demo/public/test.php','content':base64.b64encode(content.encode()).decode()},cookie=cookie,csrf=csrf)
+            self.assertEqual(code,200,body)
+            self.assertEqual((root/'projects/demo/public/test.php').read_text(),content)
+            code,_,body=self.req('GET','/api/files?path=demo%2Fpublic',cookie=cookie)
+            self.assertEqual(code,200)
+            self.assertEqual(json.loads(body)['entries'][0]['name'],'test.php')
+            code,_,body=self.req('GET','/api/file?path=demo%2Fpublic%2Ftest.php',cookie=cookie)
+            self.assertEqual(code,200);version=json.loads(body)['version']
+            code,_,body=self.req('POST','/api/action',{'action':'file-save','path':'demo/public/test.php','text':'saved through HTTP','version':version},cookie=cookie,csrf=csrf)
+            self.assertEqual(code,200,body)
+            self.assertEqual((root/'projects/demo/public/test.php').read_text(),'saved through HTTP')
+            self.assertEqual(self.req('GET','/api/file?path=..%2Fetc%2Fpasswd',cookie=cookie)[0],400)
+            self.assertEqual(self.req('POST','/api/action',{'action':'file-mkdir','path':'demo/public/images'},cookie=cookie,csrf=csrf)[0],200)
+            self.assertTrue((root/'projects/demo/public/images').is_dir())
 
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()

@@ -14,7 +14,7 @@ import shutil
 import socket
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from monitor import Monitor
 
 def configured_origin(value):
@@ -78,7 +78,7 @@ def agent(data):
     try:
         conn.request('POST', '/', body=json.dumps(data), headers={'Content-Type': 'application/json'})
         res = conn.getresponse()
-        return res.status, json.loads(res.read(200000))
+        return res.status, json.loads(res.read(8500000))
     finally:
         conn.close()
 
@@ -139,6 +139,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(401, {'error': 'Cần đăng nhập'})
         if path == '/api/session':
             return self.reply(200, {'csrf': session[1]['csrf'], 'expires': session[1]['expires']})
+        if path in ('/api/files', '/api/file'):
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                code, data = agent({'action': 'file-list' if path == '/api/files' else 'file-read', 'path': query.get('path', [''])[0]})
+                return self.reply(code, data)
+            except Exception:
+                return self.reply(503, {'error': 'Không đọc được file; kiểm tra agent hoặc đường dẫn.'})
         if path == '/api/resources':
             try:
                 code, data = agent({'action': 'resources'})
@@ -167,7 +174,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(415, {'error': 'Cần JSON'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 4096:
+            limit = 1500000 if self.path == '/api/action' else 4096
+            if not 0 < length <= limit:
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
@@ -208,7 +216,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
@@ -216,6 +224,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'package', 'port')}
             if data.get('action') in ('create-folder', 'create-database'):
                 payload = {key: data.get(key) for key in ('action', 'name')}
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir'):
+                payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version')}
             status, result = agent(payload)
             return self.reply(status, result)
         except Exception:

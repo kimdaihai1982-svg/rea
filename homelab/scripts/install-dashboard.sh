@@ -73,13 +73,13 @@ rollback() {
 trap rollback ERR
 trap 'rm -rf "$rollback_dir"' EXIT
 install -d -m 755 /usr/local/lib/maychu247-dashboard
-install -m 644 dashboard/{server.py,agent.py,monitor.py,index.html,app.js,style.css} /usr/local/lib/maychu247-dashboard/
+install -m 644 dashboard/{server.py,agent.py,monitor.py,project_files.py,index.html,app.js,style.css} /usr/local/lib/maychu247-dashboard/
 # Import all runtime modules as the unprivileged user before stopping live services.
 runuser -u maychu247-ui -- /usr/bin/python3 - <<'PREFLIGHT'
 import sys,json
 from pathlib import Path
 sys.path.insert(0, '/usr/local/lib/maychu247-dashboard')
-import server, agent, monitor
+import server, agent, monitor, project_files
 config=json.loads(server.CONFIG_PATH.read_text())
 assert len(bytes.fromhex(config['salt'])) >= 16
 assert len(bytes.fromhex(config['hash'])) == 64

@@ -1,3 +1,10 @@
+# Hiện tại: dùng tab Tập tin không cần lệnh hoặc đăng nhập File Browser
+
+Trình quản lý file native đã có: mở thư mục, upload, tạo file/thư mục, soạn thảo và tải xuống
+qua domain dashboard. Xem mục **Native Project Explorer** cuối tài liệu để biết ranh giới quyền,
+giới hạn và bằng chứng kiểm thử. Các ghi chú File Browser/SSH ở phiên bản trước là lịch sử,
+không còn là luồng quản lý file mặc định. SQL Admin vẫn là công cụ riêng.
+
 # Mới: tạo thư mục web và database bằng nút bấm
 
 - **Tập tin → Tạo thư mục web**: nhập `web-ca-nhan`, xác nhận. Ghi thật
@@ -253,3 +260,39 @@ Regression test chạy chính đoạn bind của installer trên socket HTTP th�
 listener thực còn chạy. Các kiểm tra vị trí trap/readiness là static assertions; chưa mô phỏng
 đầy đủ rollback systemd trên Ubuntu. Log server thực vẫn cần để kết luận nguyên nhân sự cố
 của từng máy, không suy ra chỉ từ ảnh trình duyệt hoặc thông báo SSH channel refused.
+
+## Native Project Explorer — file thật qua dashboard/domain
+
+Tab **Tập tin** hiện có trình quản lý native, không cần File Browser riêng hoặc SSH cho các thao
+tác được hỗ trợ. Dùng phiên dashboard hiện có, same-origin API, Host/Origin/CSRF giữ nguyên:
+
+- Duyệt projects/, mở thư mục, breadcrumb và thư mục cha; tối đa 200 mục/lần.
+- Upload file tối đa 1 MiB, không ghi đè tên trùng; không tự giải nén.
+- Tạo file UTF-8 và thư mục bên trong vị trí đang mở.
+- Đọc/tải xuống file tối đa 1 MiB; sửa văn bản tối đa 200 KiB, không soạn binary.
+- Lưu có xác nhận và SHA256 version check, backup nội dung cũ rồi atomic replace + fsync.
+  Lịch sử nằm trong .maychu247-history của cùng thư mục, tối đa 50 bản/thư mục; đến giới hạn
+  sẽ từ chối sửa thay vì tăng vô hạn. Chưa có GUI phục hồi/dọn lịch sử. Không coi lịch sử cùng
+  ổ đĩa là backup offsite. Không sửa đồng thời bằng app khác: version check chỉ phối hợp chắc
+  chắn các lệnh đi qua agent lock, không cung cấp compare-and-swap với writer bên ngoài.
+
+Root agent dùng directory fd + O_NOFOLLOW cho mọi thành phần; chỉ trong projects cố định,
+không path tuyệt đối/.., symlink, file ẩn, socket/FIFO/device. Không có exec, đường dẫn host
+tùy ý, xóa, đổi tên hoặc unpack archive. Tạo/upload/sửa code PHP là quyền triển khai ứng dụng:
+chỉ cấp cho admin tin cậy, không cho khách lạ. Không thể loại trừ mọi lỗi hoặc tấn công chỉ vì
+code tự viết. Code PHP vẫn chạy với quyền container, không thực thi qua shell root agent.
+
+Luồng thường dùng: Tập tin → demo → public → File văn bản → hello.php → nhập mã → Tạo file.
+Mở file để sửa và Lưu thay đổi thật; tạo folder/tải lên đều qua nút. Website chính phục vụ public
+root này; folder dự án mới khác chưa tự có virtual host/domain. projects/ không bao gồm sites/
+riêng và không có GUI toàn bộ filesystem. API không gửi password hoặc thực thi lệnh hướng dẫn.
+File Browser cũ chưa bị xóa/dừng; luồng native không phụ thuộc nó và không yêu cầu password đó.
+SQL Admin vẫn riêng, việc tạo database trực tiếp ở tab SQL không đồng nghĩa đã có native SQL editor.
+
+Regression tests thực thi filesystem thật, bao gồm symlink/path traversal, binary/size limits,
+no-overwrite, stale version, lịch sử, mode sau umask. Có HTTP test login/session/CSRF rồi qua
+Unix broker thật tới filesystem tạm (không mock logic file ops). Chưa có browser visual test,
+nghiệm thu systemd hoặc thao tác trên file dự án production của người dùng. SQL tests vẫn mock.
+
+Cập nhật qua --update-dashboard giữ public.env, token và data; UI restart đăng xuất phiên cũ.
+Sau cập nhật thử một file mới chưa quan trọng trong demo/public trước khi sửa code đang dùng.

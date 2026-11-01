@@ -45,11 +45,20 @@ class GuideTests(unittest.TestCase):
         self.assertIn('database-form', tree.ids)
         self.assertIn('folder-list', tree.ids)
         self.assertIn('database-list', tree.ids)
+        for element in ('native-file-list','file-upload','file-editor-text','file-editor-save','new-file-form'):
+            self.assertIn(element,tree.ids)
         self.assertTrue(tree.guide_targets)
         for target in tree.guide_targets:
             self.assertIn(target, tree.ids)
         self.assertTrue(tree.copy_predecessors)
         self.assertEqual(set(tree.copy_predecessors), {'pre'})
+
+    def test_native_file_guide_does_not_require_shell(self):
+        page=(ROOT/'dashboard/index.html').read_text()
+        guide=page.split('<details id="guide-files"',1)[1].split('</details>',1)[0]
+        self.assertNotIn('sudo ',guide)
+        self.assertNotIn('localhost:18082',guide)
+        self.assertIn('Lưu thay đổi thật',guide)
 
     def test_guide_uses_internal_container_names_for_monitors(self):
         page = (ROOT / 'dashboard/index.html').read_text()

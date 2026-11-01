@@ -10,6 +10,7 @@ import socketserver
 import subprocess
 import threading
 import time
+import project_files
 
 ROOT = Path('/opt/maychu247-v2')
 SOCKET = '/run/maychu247/agent.sock'
@@ -196,12 +197,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 4096:
+            if not 0 < length <= 1500000:
                 raise ValueError('Yêu cầu không hợp lệ')
             req = json.loads(self.rfile.read(length))
             action = req.get('action')
             if action == 'ping':
                 data = {'ready': True}
+            elif action == 'file-list':
+                data = project_files.browse(ROOT, req.get('path', ''))
+            elif action == 'file-read':
+                data = project_files.read(ROOT, req.get('path'))
+            elif action in ('file-upload', 'file-save', 'file-mkdir'):
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang backup hoặc thao tác khác; thử lại sau')
+                try:
+                    if action == 'file-upload':
+                        data = project_files.upload(ROOT, req.get('path'), req.get('content'))
+                    elif action == 'file-save':
+                        data = project_files.save(ROOT, req.get('path'), req.get('text'), req.get('version'))
+                    else:
+                        data = project_files.mkdir(ROOT, req.get('path'))
+                    print(json.dumps({'event': action, 'time': time.time()}), flush=True)
+                finally:
+                    LOCK.release()
             elif action == 'resources':
                 data = resources()
             elif action == 'status':
@@ -251,6 +269,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 raise ValueError('Chức năng chưa được hỗ trợ')
             self.reply(200, data)
+        except FileExistsError:
+            self.reply(400, {'error': 'Tên đã tồn tại; không ghi đè. Mở file để sửa nếu cần.'})
+        except OSError:
+            self.reply(400, {'error': 'Không truy cập được đường dẫn; chỉ cho file/thư mục thật trong projects, không symlink.'})
         except (ValueError, RuntimeError) as e:
             self.reply(400, {'error': str(e)})
         except Exception:

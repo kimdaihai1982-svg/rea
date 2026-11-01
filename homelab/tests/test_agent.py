@@ -7,11 +7,13 @@ from pathlib import Path
 import socket
 import shutil
 import tempfile
+import sys
 import threading
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'dashboard'))
 spec = importlib.util.spec_from_file_location('broker', ROOT / 'dashboard/agent.py')
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
