@@ -226,3 +226,24 @@ Docker/host packages, không sửa SSH/firewall/domain, không tự nhập dữ 
 cần Internet và tài nguyên dự phòng. Nếu lỗi giữa chừng, giữ nguyên cấu hình/secret để kiểm tra,
 không tự xóa `.env`, volume hoặc chạy lại bằng cách xóa thư mục. Dịch vụ đang khởi động chưa
 đồng nghĩa đã khỏe: kiểm tra health/log và ứng dụng trước khi chuyển traffic.
+
+### Sửa lỗi build PHP ở bản cài ban đầu
+
+Image `trafex/php-nginx:3.8.0` dùng PHP **8.4**, `/etc/php84` và socket
+`/run/php-fpm.sock`. Bản cấu hình ban đầu nhầm PHP 8.3/TCP 9000; đã sửa cả Dockerfile,
+Nginx và route ping cho healthcheck. Nếu bộ cài dừng tại bước build, **không xóa `.env`,
+secrets hoặc volume và không chạy lại setup để sinh mật khẩu mới**. Sao lưu hai file
+`php/Dockerfile`, `config/nginx.conf`, thay bằng bản mới rồi tại thư mục stack chạy:
+
+```bash
+sudo docker compose config --quiet
+sudo docker compose up -d --build
+sudo docker compose ps
+sudo docker compose logs --tail 80 web
+curl --fail http://127.0.0.1:18080/
+```
+
+Chỉ nghiệm thu khi PHP mẫu báo kết nối DB thành công và healthcheck khỏe. Site tạo trước
+bản sửa có bản sao riêng: cập nhật hai file tương ứng trong từng `sites/<ten>/` và rebuild
+ở đúng thư mục site. Không thay cấu hình Nginx tùy chỉnh mà chưa sao lưu và đối chiếu.
+Đã xác minh hợp đồng qua source upstream 3.8.0 và static tests; chưa build Docker tại sandbox.
