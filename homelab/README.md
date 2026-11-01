@@ -1,4 +1,10 @@
-# MayChu247 v2 — Bộ triển khai độc lập cho Ubuntu
+# MayChu247 — Máy chủ cá nhân + Personal Operations
+
+**Mới:** Dashboard có backend thật, đăng nhập, số liệu máy chủ, quản lý dịch vụ và backup.
+Đọc [DASHBOARD.md](DASHBOARD.md) để cài/cập nhật, xem giới hạn và quy trình nghiệm thu.
+Dashboard mới không phải preview, nhưng chưa có đủ GUI cho mọi chức năng hosting.
+
+## Bộ Docker nền
 
 **Đây là cấu hình khởi điểm cần nghiệm thu, không phải chứng nhận production/HA.**
 Không sửa hệ thống `/opt/stack` cũ; không nhập các mật khẩu đã lộ trong chat.
@@ -20,6 +26,7 @@ cd /opt/maychu247-v2
 docker version
 docker compose version
 bash scripts/setup.sh
+sudo bash scripts/install-dashboard.sh
 ```
 
 Nếu Docker yêu cầu quyền root: dùng `sudo bash scripts/setup.sh` và `sudo docker compose ...`.
@@ -45,7 +52,7 @@ Mở `http://localhost:18000` trên PC:
 
 | Công cụ | Cổng host | Dùng để |
 |---|---:|---|
-| Portal | 18000 | Liên kết công cụ, không có quyền điều khiển Docker |
+| Dashboard mới | 18000 | Đăng nhập, số liệu thật, điều khiển dịch vụ qua agent; cần cài install-dashboard.sh |
 | PHP + Nginx | 18080 | PHP-FPM + OPcache, mẫu kiểm tra DB |
 | Adminer | 18081 | MariaDB server `db`, database `appdb`, user `appuser`, mật khẩu trong `.env` |
 | File Browser | 18082 | Upload/chỉnh sửa trong `projects/` (chỉ cấp cho admin tin cậy) |
@@ -106,7 +113,7 @@ Trong Cloudflare đặt hostname thử nghiệm:
 | Host ví dụ | Origin trong tunnel mới |
 |---|---|
 | v2.maychu247.uk | http://web:8080 |
-| panel-v2.maychu247.uk | http://portal:80 |
+| panel-v2.maychu247.uk | Chỉ portal cũ nếu bật legacy-portal; dashboard mới không public |
 | sql-v2.maychu247.uk | http://adminer:8080 |
 | files-v2.maychu247.uk | http://files:80 |
 | status-v2.maychu247.uk | http://kuma:3001 |
@@ -125,7 +132,7 @@ trùng. Không chạy hai tác vụ scheduled/email/payment đồng thời. Bộ
 ## 5. Giám sát và vận hành
 
 Trong Kuma tạo monitor HTTP `http://web:8080` (PHP mẫu trả 503 nếu DB lỗi), TCP `db:3306`,
-MQTT `mqtt:1883` với credentials/topic thử, HTTP `http://portal:80`; cấu hình email/Telegram
+MQTT `mqtt:1883` với credentials/topic thử, HTTP trang ứng dụng public (portal cũ chỉ có nếu bật profile legacy-portal); cấu hình email/Telegram
 và thử cảnh báo thật. Không chỉ theo dõi trang chủ 200: cần heartbeat worker và độ trễ xử lý.
 Kuma cùng máy không báo được khi cả máy mất điện/mạng: thêm monitor từ bên ngoài.
 

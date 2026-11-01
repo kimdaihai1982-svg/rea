@@ -61,6 +61,7 @@ services:
     volumes: ['./projects:/srv', 'files:/database']
   portal:
     <<: *service
+    profiles: [legacy-portal]
     image: nginx:stable-alpine
     ports: ['${BIND_IP:-127.0.0.1}:18000:80']
     volumes: ['./portal:/usr/share/nginx/html:ro']

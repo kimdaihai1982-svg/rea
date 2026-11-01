@@ -1,0 +1,120 @@
+# Personal Operations v1 — dashboard có backend thật
+
+## Phân biệt với preview
+
+`dashboard/` là ứng dụng thật; `preview.html` vẫn là concept cũ, không phải sản phẩm đang chạy.
+Không có số liệu mẫu trong dashboard mới. Giao diện có đăng nhập, số liệu CPU/RAM/đĩa/uptime
+của **Ubuntu host/VM**, trạng thái Docker Compose, start/stop/restart sáu dịch vụ cố định,
+khởi chạy backup-all và danh sách 20 snapshot stack chính đã có COMPLETE.
+
+**Chưa hoàn chỉnh “full”:** chưa có GUI tạo/sửa website/domain/DNS, user/ACL MQTT, cron/worker,
+restore/download snapshot, xem log app, giám sát quota hay cấu hình firewall. Những phần này
+vẫn quản lý theo tài liệu/SSH và ứng dụng chuyên dụng. Không gọi container running là dịch vụ
+đã khỏe: hiển thị riêng healthcheck hoặc ghi rõ không khai báo. Backup offsite và timer chưa được
+xác minh qua API. Không hứa HA, thương mại hoặc hiệu năng khi chưa nghiệm thu.
+
+## Cấu trúc quyền
+
+- `maychu247-dashboard.service`: user `maychu247-ui`, Python stdlib, chỉ bind 127.0.0.1:18000.
+  Không quyền sudo, không Docker socket. Đọc hash scrypt ở `/etc/maychu247-ui/auth.json`.
+- `maychu247-agent.service`: root, socket Unix `/run/maychu247/agent.sock`, root:maychu247-ui 0660.
+  Chỉ nhận status/start/stop/restart với allowlist web/db/adminer/mqtt/kuma/files, và backup-all.
+  Không cung cấp exec, shell, đường dẫn tùy chọn, tùy chỉnh Compose/env hoặc API Docker proxy.
+- Agent có quyền root thực tế và Docker tương đương root. Giới hạn API giảm quyền cho UI,
+  không thay thế security review. Chỉ cài source từ nguồn tin cậy; code/scripts/compose phải
+  root-owned, không writable bởi user web. Không thêm user cá nhân khác vào group maychu247-ui.
+- Cookie HttpOnly + SameSite Strict, session memory 1h, CSRF token + strict Host/Origin,
+  10 lần thử đăng nhập/5 phút. Rate limit global phù hợp một quản trị viên, không đa khách hàng.
+- HTTP chỉ trên loopback và SSH tunnel, cookie không Secure để hoạt động qua localhost HTTP.
+  Chưa hỗ trợ HTTPS/reverse proxy/domain public. Không sửa kiểm tra Host/Origin để publish bừa.
+- Chưa có MFA riêng trong UI; bảo vệ SSH key và quyền máy PC. Không mount socket agent vào
+  app PHP/File Browser. Ai kiểm soát PC/SSH root có thể quản trị cả máy.
+
+## Cài trên stack MayChu247 có sẵn
+
+Không xóa database/secrets hoặc cài lại setup. Chép `dashboard/` và script mới vào
+`/opt/maychu247-v2`, rồi:
+
+```bash
+sudo bash /opt/maychu247-v2/scripts/install-dashboard.sh
+```
+
+Script tạo tài khoản hệ thống riêng, cài code vào `/usr/local/lib/maychu247-dashboard`,
+unit systemd và hash đăng nhập. Chỉ dừng portal Docker cùng project để nhường port 18000;
+không dừng PHP/DB/MQTT hoặc `/opt/stack` cũ. Mật khẩu mới hiện một lần trên terminal: lưu riêng.
+Không chạy đồng thời script cài/update và backup. Script không cài Cockpit hoặc thay firewall.
+Phiên bản mới của compose để portal cũ sau profile `legacy-portal`; tuyệt đối không bật profile
+đó cùng dashboard vì tranh port 18000. Không dùng hostname `portal:80` để truy cập dashboard
+mới qua Cloudflare: dashboard mới chỉ hỗ trợ SSH forwarding.
+
+Bộ cài một file mới tự gọi install-dashboard sau khi setup thành công; vẫn từ chối target cũ.
+Nếu cài dashboard lỗi, PHP/SQL vẫn được giữ; xem systemctl/journal, không xóa volume để thử lại.
+
+## Truy cập và xác minh
+
+Trên PC:
+
+```bash
+ssh -L 18000:127.0.0.1:18000 -L 18080:127.0.0.1:18080 -L 18081:127.0.0.1:18081 -L 18082:127.0.0.1:18082 -L 13001:127.0.0.1:13001 kimdaihai@192.168.1.11
+```
+
+Mở **http://localhost:18000**, nhập mật khẩu dashboard (không phải password Ubuntu/DB).
+Các ứng dụng Adminer/File Browser/Kuma vẫn có đăng nhập riêng; chưa có SSO. Tab PHP/SQL/Files
+mở chúng qua những cổng SSH forward tương ứng. Kiểm tra CPU sau hai mẫu (khoảng 10 giây).
+Nếu agent mất kết nối, giao diện báo dữ liệu cũ/lỗi, không hiển thị số liệu giả.
+
+```bash
+sudo systemctl status maychu247-dashboard maychu247-agent --no-pager
+sudo journalctl -u maychu247-agent -u maychu247-dashboard -n 80
+sudo ss -lntp | grep 18000
+```
+
+Chỉ thấy 127.0.0.1:18000. Thử đăng nhập sai, đăng xuất, kiểm tra status, thử restart riêng web
+lúc chưa có dữ liệu quan trọng, chạy backup và kiểm tra COMPLETE/checksum bằng SSH. Kiểm tra
+restore trên VM khác. Không xem việc nút bấm báo nhận lệnh là chứng nhận backup khôi phục được.
+
+Backup chạy nền tuần tự, agent ghi trạng thái job trong RAM. Agent restart sẽ mất trạng thái job;
+backup script có flock chống backup trùng, nhưng không được restart agent/deploy hoặc thao tác
+container khi job chưa kết thúc. Không có timeout tự động cho backup: tránh để job con tiếp tục
+ngầm sau timeout giả. Nếu job treo, quản trị viên kiểm tra process/log/lock qua SSH trước khi xử lý.
+Backup từ timer/SSH không đồng bộ lock giao diện với service actions: không thao tác start/stop
+trong lịch backup và không coi UI lock là phối hợp toàn bộ hệ thống.
+
+## Quên mật khẩu / rollback
+
+```bash
+sudo bash /opt/maychu247-v2/scripts/reset-dashboard-password.sh
+```
+
+Sinh password mới, restart UI và thu hồi mọi phiên. Hash auth và systemd unit không nằm trong
+snapshot Docker: sau phục hồi máy sạch cài lại dashboard, sinh mật khẩu mới. Không public secrets.
+
+Rollback về portal liên kết cũ (không mất dữ liệu):
+
+```bash
+sudo systemctl disable --now maychu247-dashboard maychu247-agent
+sudo bash -c 'cd /opt/maychu247-v2 && docker compose --profile legacy-portal up -d portal'
+```
+
+Nếu compose cũ chưa có profile, `docker compose up -d portal` vẫn mở lại portal cũ.
+Không remove volume hoặc tài khoản/systemd một cách tự động. Chưa xác minh runtime systemd/Docker
+trên server thực của bạn. Test HTTP auth/CSRF sử dụng agent giả, không chứng minh vận hành Docker.
+
+## Nâng cấp bằng một file đã tải
+
+File `downloads/MayChu247-Install.sh` hỗ trợ cả cài mới và nâng dashboard trên stack hiện có:
+
+```bash
+bash ~/MayChu247-Install.sh --check
+sudo bash ~/MayChu247-Install.sh --update-dashboard
+```
+
+Gõ `UPDATE-DASHBOARD` sau khi đọc kế hoạch. Mode này không reset server: giữ nguyên .env,
+SQL, MQTT và source dự án; sao lưu compose/scripts rồi đưa portal cũ vào profile legacy-portal,
+cài UI thật. Không cập nhật PHP/Nginx tùy chỉnh. Khi đã có UI, cập nhật sẽ giữ password hiện có.
+Không chạy khi backup/deploy đang hoạt động, kể cả timer hoặc lệnh SSH khác. Nếu compose đã
+sửa khác baseline, updater từ chối để đối chiếu thủ công. Chưa có rollback tự động nếu cài
+systemd lỗi; dùng phần rollback bên trên. Bộ cài mới (--install) vẫn từ chối thư mục đã tồn tại.
+
+Ảnh giao diện đẹp không chứng minh tính đầy đủ; v1 ưu tiên số liệu thật, auth và ranh giới quyền.
+Nghiệm thu các chức năng hiện có trước khi bổ sung GUI website/domain/MQTT ở bước tiếp theo.

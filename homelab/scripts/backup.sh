@@ -21,7 +21,7 @@ docker compose exec -T db sh -c 'exec mariadb-dump -uroot -p"$MARIADB_ROOT_PASSW
 for svc in mqtt kuma files; do
   docker compose run --rm --no-deps --user 0 --entrypoint tar "$svc" czf - -C "$(case $svc in mqtt) echo /mosquitto/data;; kuma) echo /app/data;; files) echo /database;; esac)" . > "$work/$svc.tgz"
 done
-tar czf "$work/config.tgz" .env compose.yaml config secrets projects php portal scripts .env.example .gitignore
+tar czf "$work/config.tgz" .env compose.yaml config secrets projects php portal scripts dashboard packages.json README.md SECURITY.md MULTISITE.md DASHBOARD.md .env.example .gitignore
 printf '%s\n' "$stamp" > "$work/COMPLETE"
 (cd "$work"; sha256sum database.sql *.tgz COMPLETE > SHA256SUMS)
 mv "$work" "backups/$stamp"

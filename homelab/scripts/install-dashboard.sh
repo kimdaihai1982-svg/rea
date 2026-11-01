@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Install the real dashboard without granting the web process Docker/root access.
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
+[[ $EUID == 0 && $PWD == /opt/maychu247-v2 ]] || { echo 'Chạy sudo bash /opt/maychu247-v2/scripts/install-dashboard.sh'; exit 1; }
+command -v python3 >/dev/null
+command -v systemctl >/dev/null
+docker compose version >/dev/null
+# Existing unowned users/units must not be silently repurposed.
+if id maychu247-ui >/dev/null 2>&1; then
+  [[ -f /etc/maychu247-ui/managed ]] || { echo 'User maychu247-ui có sẵn, không rõ nguồn. Dừng.'; exit 1; }
+else
+  useradd --system --user-group --no-create-home --shell /usr/sbin/nologin maychu247-ui
+fi
+for unit in maychu247-agent.service maychu247-dashboard.service; do
+  if [[ -e /etc/systemd/system/$unit && ! -f /etc/maychu247-ui/managed ]]; then
+    echo "Unit $unit có sẵn, không rõ nguồn. Dừng."; exit 1
+  fi
+done
+install -d -m 750 -o root -g maychu247-ui /etc/maychu247-ui
+touch /etc/maychu247-ui/managed
+chmod 600 /etc/maychu247-ui/managed
+if [[ ! -e /etc/maychu247-ui/auth.json ]]; then
+  python3 - <<'PY'
+import hashlib,json,secrets
+from pathlib import Path
+password=secrets.token_urlsafe(24)
+salt=secrets.token_bytes(16)
+hash_=hashlib.scrypt(password.encode(),salt=salt,n=16384,r=8,p=1).hex()
+p=Path('/etc/maychu247-ui/auth.json')
+p.write_text(json.dumps({'salt':salt.hex(),'hash':hash_}))
+p.chmod(0o640)
+print('\nMẬT KHẨU DASHBOARD (lưu vào password manager): '+password+'\n')
+PY
+fi
+chown root:maychu247-ui /etc/maychu247-ui/auth.json
+chmod 640 /etc/maychu247-ui/auth.json
+install -d -m 755 /usr/local/lib/maychu247-dashboard
+install -m 644 dashboard/{server.py,agent.py,index.html,app.js,style.css} /usr/local/lib/maychu247-dashboard/
+# Only stop the old link-only portal from THIS Compose project, not any other stack.
+docker compose stop portal
+systemctl stop maychu247-dashboard.service maychu247-agent.service 2>/dev/null || true
+python3 - <<'PY'
+import socket
+with socket.socket() as s:
+    try:s.bind(('127.0.0.1',18000))
+    except OSError:raise SystemExit('Port 18000 đang được dùng. Không thay dịch vụ lạ.')
+PY
+cat > /etc/systemd/system/maychu247-agent.service <<'UNIT'
+[Unit]
+Description=MayChu247 local restricted Compose broker
+After=docker.service
+Requires=docker.service
+[Service]
+Type=simple
+User=root
+Group=maychu247-ui
+RuntimeDirectory=maychu247
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/python3 /usr/local/lib/maychu247-dashboard/agent.py
+Restart=on-failure
+UMask=0007
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/maychu247-v2 /run/maychu247
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+cat > /etc/systemd/system/maychu247-dashboard.service <<'UNIT'
+[Unit]
+Description=MayChu247 personal dashboard (loopback only)
+After=maychu247-agent.service
+Requires=maychu247-agent.service
+[Service]
+Type=simple
+User=maychu247-ui
+Group=maychu247-ui
+ExecStart=/usr/bin/python3 /usr/local/lib/maychu247-dashboard/server.py
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now maychu247-agent.service maychu247-dashboard.service
+systemctl --no-pager --full status maychu247-dashboard.service
+printf '\nMở qua SSH forwarding http://localhost:18000. Không public dashboard qua Cloudflare ở bản này.\n'

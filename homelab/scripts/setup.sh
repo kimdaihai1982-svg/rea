@@ -18,5 +18,6 @@ docker run --rm -e MQTT_PASSWORD="$MQTT_PASSWORD" -v "$PWD/secrets:/out" eclipse
 unset MQTT_PASSWORD
 docker compose config --quiet
 docker compose up -d --build
+echo 'Tiếp theo: sudo bash scripts/install-dashboard.sh để có giao diện ở cổng 18000.'
 echo 'Đã gửi lệnh khởi động. Kiểm tra: docker compose ps; docker compose logs --tail 50'
 echo 'Mật khẩu: .env. Filebrowser admin ban đầu: docker compose logs files (đổi ngay).'
