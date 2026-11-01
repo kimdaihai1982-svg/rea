@@ -85,3 +85,45 @@ class FileWorkspaceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FileManagementTests(unittest.TestCase):
+    setUp = FileWorkspaceTests.setUp
+    upload = FileWorkspaceTests.upload
+
+    def test_safe_chmod_presets_and_block_hardlinks(self):
+        self.upload('demo/public/file.txt')
+        target=self.root/'projects/demo/public/file.txt'
+        files.chmod(self.root,'demo/public/file.txt','0600')
+        self.assertEqual(target.stat().st_mode & 0o7777,0o600)
+        files.chmod(self.root,'demo/public','0700')
+        self.assertEqual(target.parent.stat().st_mode & 0o7777,0o700)
+        for mode in ('0777','4755','0755',777,None):
+            with self.assertRaises(ValueError): files.chmod(self.root,'demo/public/file.txt',mode)
+        os.link(target,self.root/'hardlink')
+        with self.assertRaises(ValueError): files.chmod(self.root,'demo/public/file.txt','0644')
+        outside=self.root/'outside';outside.write_text('safe')
+        (target.parent/'link').symlink_to(outside)
+        with self.assertRaises(OSError): files.chmod(self.root,'demo/public/link','0600')
+        self.assertEqual(outside.stat().st_mode & 0o777,0o644)
+
+    def test_delete_moves_whole_folder_to_private_trash_without_unlinking_data(self):
+        self.upload('demo/public/file.txt')
+        with self.assertRaises(ValueError): files.delete(self.root,'demo/public','wrong')
+        result=files.delete(self.root,'demo/public','demo/public')
+        self.assertFalse((self.root/'projects/demo/public').exists())
+        trash=self.root/'projects/.maychu247-trash'
+        self.assertEqual(trash.stat().st_mode & 0o777,0o700)
+        record=trash/result['trash_id']
+        self.assertEqual((record/'item/file.txt').read_bytes(),b'hello')
+        self.assertIn('demo/public',(record/'info.json').read_text())
+        self.assertNotIn('.maychu247-trash',[x['name'] for x in files.browse(self.root,'')['entries']])
+
+    def test_delete_rejects_symlink_traversal_and_symlink_trash(self):
+        outside=self.root/'outside';outside.mkdir()
+        (self.root/'projects/link').symlink_to(outside,target_is_directory=True)
+        with self.assertRaises(ValueError): files.delete(self.root,'link','link')
+        (self.root/'projects/.maychu247-trash').symlink_to(outside,target_is_directory=True)
+        self.upload('demo/public/file.txt')
+        with self.assertRaises(OSError): files.delete(self.root,'demo/public/file.txt','demo/public/file.txt')
+        self.assertTrue((self.root/'projects/demo/public/file.txt').exists())

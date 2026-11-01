@@ -12,6 +12,8 @@ import threading
 import time
 import project_files
 import mqtt_client
+import sql_console
+import site_manager
 
 ROOT = Path('/opt/maychu247-v2')
 SOCKET = '/run/maychu247/agent.sock'
@@ -25,7 +27,7 @@ def compose(*args, timeout=45):
                        cwd=ROOT, capture_output=True, text=True, timeout=timeout)
     if r.returncode:
         # Do not expose command stderr: it can contain credentials/config values.
-        raise RuntimeError('Docker báo lỗi. Kiểm tra journal và compose logs qua SSH.')
+        raise RuntimeError('Docker chưa xác nhận thành công. Đọc lại trạng thái dịch vụ trước khi thử lại; không tự xóa dữ liệu.')
     return r.stdout[-100000:]
 
 
@@ -54,7 +56,7 @@ def snapshots():
 def site_inventory():
     base = ROOT / 'sites'
     if base.is_symlink():
-        return {'items': [], 'error': 'Thư mục sites không hợp lệ; kiểm tra qua SSH.'}
+        return {'items': [], 'error': 'Thư mục sites không hợp lệ; không quản lý site cho đến khi quản trị viên kiểm tra.'}
     items = []
     try:
         for folder in sorted(base.glob('*')):
@@ -70,7 +72,7 @@ def site_inventory():
                           'package': value['package'], 'port': value['port'],
                           'deployment': 'Chỉ xác nhận có cấu hình; chưa kiểm tra container/DNS'})
             if len(items) >= 100:
-                return {'items': items, 'error': 'Chỉ hiển thị tối đa 100 site. Kiểm tra inventory qua SSH.'}
+                return {'items': items, 'error': 'Chỉ hiển thị tối đa 100 site. Danh sách chưa đầy đủ.'}
         return {'items': items, 'error': None}
     except (OSError, ValueError, KeyError, TypeError):
         return {'items': items, 'error': 'Inventory có file không đọc được; danh sách có thể chưa đầy đủ.'}
@@ -98,24 +100,25 @@ def create_site(req):
     return {'message': 'Đã tạo cấu hình và mật khẩu riêng trên server. Chưa khởi động Docker, tạo DNS hoặc gắn domain công khai.'}
 
 
-def database_sql(statement):
+def database_sql(statement, root=None):
+    root = root or ROOT
     # Fixed in-container shell only expands the existing root secret; no user shell text.
-    command = ['docker', 'compose', '--project-directory', str(ROOT), 'exec', '-T', 'db',
-               'sh', '-c', 'exec mariadb --connect-timeout=3 --batch --skip-column-names -uroot -p"$MARIADB_ROOT_PASSWORD"']
-    result = subprocess.run(command, input=statement, cwd=ROOT, capture_output=True, text=True, timeout=10)
+    command = ['docker', 'compose', '--project-directory', str(root), 'exec', '-T', 'db',
+               'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb --connect-timeout=3 --binary-mode=1 --local-infile=0 --batch --skip-column-names -uroot']
+    result = subprocess.run(command, input=statement, cwd=root, capture_output=True, text=True, timeout=10)
     if result.returncode:
         raise RuntimeError('Database chưa sẵn sàng hoặc câu lệnh thất bại. Không tự chạy lại lệnh tạo; kiểm tra danh sách trước.')
     return result.stdout
 
 
-def database_inventory():
-    out = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME LIMIT 101;\n")
+def database_inventory(root=None):
+    out = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME LIMIT 101;\n", root)
     names = out.splitlines()
     return {'items': names[:100], 'error': 'Chỉ hiển thị 100 database' if len(names) > 100 else None}
 
 
-def project_folders():
-    base = ROOT / 'projects'
+def project_folders(root=None):
+    base = (root or ROOT) / 'projects'
     if base.is_symlink():
         raise ValueError('projects không được là symlink')
     items = []
@@ -130,25 +133,26 @@ def project_folders():
     return items
 
 
-def resources():
+def resources(root=None):
     result = {'folders': {'items': [], 'error': None}, 'databases': {'items': [], 'error': None}}
     try:
-        result['folders']['items'] = project_folders()
+        result['folders']['items'] = project_folders(root)
     except (OSError, ValueError):
         result['folders']['error'] = 'Chưa đọc được thư mục projects; không coi danh sách trống là không có dữ liệu.'
     try:
-        result['databases'] = database_inventory()
+        result['databases'] = database_inventory(root)
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         result['databases']['error'] = 'Chưa đọc được MariaDB; kiểm tra dịch vụ db. Không suy ra database đã mất.'
     return result
 
 
-def create_folder(name):
+def create_folder(name, root=None):
+    root = root or ROOT
     if not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', name):
         raise ValueError('Tên thư mục: chữ thường a-z, số, dấu -, bắt đầu bằng chữ, tối đa 32 ký tự')
     # Directory-relative operations with no-follow prevent escaping via project symlinks.
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    with_fd = os.open(ROOT / 'projects', flags)
+    with_fd = os.open(root / 'projects', flags)
     folder_fd = public_fd = None
     try:
         try:
@@ -169,26 +173,37 @@ def create_folder(name):
         if public_fd is not None: os.close(public_fd)
         if folder_fd is not None: os.close(folder_fd)
         os.close(with_fd)
-    return {'message': 'Đã tạo projects/' + name + '/public. Thấy trong File Browser ở /' + name + '/public. Chưa tạo virtual host/domain.'}
+    return {'message': 'Đã tạo projects/' + name + '/public. Mở trong tab Tập tin ở /' + name + '/public. Chưa tạo virtual host/domain.'}
 
 
-def create_database(name):
+def create_database(name, root=None):
     if (not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', name)
             or name in ('mysql', 'sys', 'performance_schema', 'information_schema')):
         raise ValueError('Tên database: chữ thường a-z, số, dấu _, bắt đầu bằng chữ, tối đa 32 ký tự; không dùng tên hệ thống')
     # appuser@% must already exist; never implicitly create a user without a password.
-    exists = database_sql("SELECT COUNT(*) FROM mysql.user WHERE User='appuser' AND Host='%';\n").strip()
+    exists = database_sql("SELECT COUNT(*) FROM mysql.user WHERE User='appuser' AND Host='%';\n", root).strip()
     if exists != '1':
         raise ValueError('Không tìm thấy đúng tài khoản appuser@%; chưa tạo database')
-    current = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='" + name + "';\n").strip()
+    current = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='" + name + "';\n", root).strip()
     if current:
         raise ValueError('Database đã tồn tại; không ghi đè')
     try:
-        database_sql('CREATE DATABASE `' + name + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n')
-        database_sql('GRANT ALL PRIVILEGES ON `' + name + "`.* TO 'appuser'@'%';\n")
+        database_sql('CREATE DATABASE `' + name + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n', root)
+        database_sql('GRANT ALL PRIVILEGES ON `' + name + "`.* TO 'appuser'@'%';\n", root)
     except (RuntimeError, subprocess.TimeoutExpired):
-        raise RuntimeError('Tạo/cấp quyền chưa xác nhận hoàn tất, có thể database đã được tạo. Kiểm tra danh sách và quyền qua SSH trước khi thử lại; không xóa dữ liệu.')
-    return {'message': 'Đã tạo database ' + name + ' và cấp quyền cho appuser. Dùng cùng DB_PASSWORD của stack chính; chưa liên kết với website.'}
+        raise RuntimeError('Tạo/cấp quyền chưa xác nhận hoàn tất, có thể database đã được tạo. Đọc lại danh sách và kiểm tra quyền trước khi thử lại; không xóa dữ liệu.')
+    return {'message': 'Đã tạo database ' + name + ' và cấp quyền cho appuser. Dùng mật khẩu appuser hiện có của stack/site đang chọn; chưa liên kết với website.'}
+
+
+def delete_database(name, confirmation, root=None):
+    name = sql_console.name(name)
+    if confirmation != 'DELETE ' + name:
+        raise ValueError('Phải xác nhận DELETE và tên database; xóa vĩnh viễn, không có hoàn tác')
+    current = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='" + name + "';\n", root).strip()
+    if current != name:
+        raise ValueError('Database không tồn tại hoặc chưa xác minh được; chưa xóa')
+    database_sql('DROP DATABASE `' + name + '`;\n', root)
+    return {'message': 'MariaDB xác nhận đã xóa database ' + name + '. Không có hoàn tác. Quyền appuser cũ trên tên này có thể vẫn còn; tạo lại cùng tên không tạo cách ly mới.'}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -205,19 +220,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if action == 'ping':
                 data = {'ready': True}
             elif action == 'file-list':
-                data = project_files.browse(ROOT, req.get('path', ''))
+                data = project_files.browse(site_manager.project(ROOT, req.get('site')), req.get('path', ''))
             elif action == 'file-read':
-                data = project_files.read(ROOT, req.get('path'))
-            elif action in ('file-upload', 'file-save', 'file-mkdir'):
+                data = project_files.read(site_manager.project(ROOT, req.get('site')), req.get('path'))
+            elif action in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod'):
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
                     raise ValueError('Đang backup hoặc thao tác khác; thử lại sau')
                 try:
                     if action == 'file-upload':
-                        data = project_files.upload(ROOT, req.get('path'), req.get('content'))
+                        data = project_files.upload(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('content'))
                     elif action == 'file-save':
-                        data = project_files.save(ROOT, req.get('path'), req.get('text'), req.get('version'))
+                        data = project_files.save(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('text'), req.get('version'))
+                    elif action == 'file-delete':
+                        data = project_files.delete(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('confirmation'))
+                    elif action == 'file-chmod':
+                        data = project_files.chmod(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('mode'))
                     else:
-                        data = project_files.mkdir(ROOT, req.get('path'))
+                        data = project_files.mkdir(site_manager.project(ROOT, req.get('site')), req.get('path'))
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
@@ -234,8 +253,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
+            elif action in ('sql-query', 'delete-database'):
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang có tác vụ quản lý; thử lại sau')
+                try:
+                    if action == 'sql-query':
+                        data = sql_console.query(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('query'), req.get('confirmation'))
+                    else:
+                        data = delete_database(req.get('name'), req.get('confirmation'), site_manager.project(ROOT, req.get('site')))
+                    print(json.dumps({'event': action, 'time': time.time()}), flush=True)
+                finally:
+                    LOCK.release()
+            elif action == 'site-check':
+                data = site_manager.check(ROOT, req.get('name'))
+            elif action in ('site-start', 'site-stop'):
+                site_manager.project(ROOT, req.get('name'))
+                if not req.get('name'):
+                    raise ValueError('Chỉ quản lý site riêng; stack chính dùng tab Dịch vụ')
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang có tác vụ quản lý; thử lại sau')
+                JOB.update(state='running', message='Đang ' + action + ' cho ' + req['name'] + '. Có thể cần tải image/build trong vài phút.')
+                def work(name=req['name'], operation=action):
+                    try:
+                        result = site_manager.lifecycle(ROOT, name, operation)
+                        JOB.update(state='done', message=name + ': ' + result['message'])
+                    except Exception:
+                        JOB.update(state='error', message=name + ': chưa xác nhận tác vụ hoàn tất. Kiểm tra origin/trạng thái trước khi thử lại; không xóa dữ liệu.')
+                    finally:
+                        LOCK.release()
+                try:
+                    threading.Thread(target=work, daemon=True).start()
+                except Exception:
+                    JOB.update(state='error', message='Chưa khởi động được tác vụ site')
+                    LOCK.release()
+                    raise
+                print(json.dumps({'event': action, 'time': time.time()}), flush=True)
+                data = {'message': 'Đã tiếp nhận tác vụ, chưa xác nhận triển khai thành công. Theo dõi trạng thái tác vụ và bấm Kiểm tra origin.'}
             elif action == 'resources':
-                data = resources()
+                data = resources(site_manager.project(ROOT, req.get('site')))
             elif action == 'status':
                 out = compose('ps', '--all', '--format', 'json')
                 if out.strip().startswith('['):
@@ -261,7 +316,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
                     raise ValueError('Đang có tác vụ quản lý; thử lại sau')
                 try:
-                    data = create_folder(req.get('name')) if action == 'create-folder' else create_database(req.get('name'))
+                    root = site_manager.project(ROOT, req.get('site'))
+                    data = create_folder(req.get('name'), root) if action == 'create-folder' else create_database(req.get('name'), root)
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()

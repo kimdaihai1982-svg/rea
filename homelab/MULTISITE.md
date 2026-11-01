@@ -1,7 +1,7 @@
 # Nhiều website, database và domain riêng
 
 Có thể tạo cấu hình qua **Website & Domain → Tạo website mới** hoặc CLI dưới đây.
-Web form chưa khởi động container/tạo DNS và không phải hệ thống billing/provisioning hoàn chỉnh.
+Tạo form chỉ ghi cấu hình; sau đó có nút Chạy / triển khai (build/up web + db), Dừng và Kiểm tra origin. Không tự tạo DNS và không phải hệ thống billing/provisioning hoàn chỉnh.
 Không cấp khách quyền Cockpit/File Browser của stack chính. Mỗi site là một Compose project
 riêng, network riêng, MariaDB riêng, database `appdb`/user `appuser` nhưng secret khác nhau.
 Không chia sẻ PHP process hoặc DB instance giữa các site.
@@ -20,7 +20,21 @@ RAM; OOM kill sẽ làm ứng dụng ngừng hoạt động. Giới hạn kết 
 Chưa có quota dung lượng đĩa/IO/network: dùng filesystem project quota hoặc VM/disk riêng
 nếu cung cấp dịch vụ có quota bắt buộc. Không hứa lưu trữ vô hạn. Chưa đo throughput/latency.
 
-## 1. Tạo website (chạy trên server)
+## Luồng GUI khuyến nghị
+
+Tạo website → Chạy / triển khai → theo dõi Job → Kiểm tra origin. Chọn site trong tab File/SQL
+để quản lý projects/ và MariaDB riêng bằng phiên dashboard. SQL console dùng appuser; không
+hiện password ra browser. Xem DASHBOARD.md về giới hạn file/trash/chmod/SQL và kiểm thử.
+
+Domain: Cloudflare Zero Trust GUI → Tunnel **host** đang hoạt động → thêm published application
+route cho hostname site → HTTP → 127.0.0.1:<port site>. Không sửa maychu247.uk → 18000.
+Đây là thao tác Cloudflare GUI, không phải nút tự cấu hình DNS trong dashboard; chưa có API
+credential để tự tạo route. Origin HTTP 200 không phải chứng nhận DNS/HTTPS đã hoạt động.
+
+Các lệnh bên dưới chỉ là phương án bảo trì cho quản trị viên, không phải luồng bắt buộc của
+người dùng dashboard. Không chạy chúng đồng thời với job đang chạy từ GUI.
+
+## 1. Tạo website (phương án CLI cho quản trị viên)
 
 ```bash
 cd /opt/maychu247-v2
@@ -52,7 +66,7 @@ composer dependencies build riêng. App nhận `DB_USERNAME=appuser`, `DB_PASSWO
 host `db`, database `appdb`. Nếu app có schema/worker/Redis khác phải bổ sung rõ ràng.
 Uploads/cache cần writable mount riêng, backup script cần bao phủ mọi mount mới.
 Không dùng File Browser của stack chính để xem site khác: nó chỉ mount `homelab/projects`.
-Dùng SFTP qua SSH admin hoặc triển khai pipeline tin cậy; chưa có SFTP account bị chroot theo khách.
+Dashboard native cho phép chọn site để quản lý projects/ và SQL riêng. Ngoài ra quản trị viên có thể dùng SFTP/pipeline tin cậy; chưa có SFTP account bị chroot theo khách.
 
 Quản lý SQL từ PC qua SSH, không public SQL. Ví dụ thêm Adminer tạm trong đúng project:
 

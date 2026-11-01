@@ -118,11 +118,11 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(self.req('POST','/api/action',payload,cookie=cookie)[0],403)
                 broker.assert_not_called()
                 self.assertEqual(self.req('POST','/api/action',payload,cookie=cookie,csrf=csrf)[0],200)
-                broker.assert_called_once_with({'action':action,'name':'my_app'})
+                broker.assert_called_once_with({'action':action,'name':'my_app','site':''})
         self.assertEqual(self.req('GET','/api/resources')[0],401)
         with patch.object(server,'agent',return_value=(200,{'folders':{},'databases':{}})) as broker:
             self.assertEqual(self.req('GET','/api/resources',cookie=cookie)[0],200)
-            broker.assert_called_once_with({'action':'resources'})
+            broker.assert_called_once_with({'action':'resources','site':''})
 
     def test_native_files_http_to_unix_agent_real_filesystem(self):
         spec = importlib.util.spec_from_file_location('file_integration_agent', ROOT/'dashboard/agent.py')
@@ -161,6 +161,28 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.req('GET','/api/file?path=..%2Fetc%2Fpasswd',cookie=cookie)[0],400)
             self.assertEqual(self.req('POST','/api/action',{'action':'file-mkdir','path':'demo/public/images'},cookie=cookie,csrf=csrf)[0],200)
             self.assertTrue((root/'projects/demo/public/images').is_dir())
+            self.assertEqual(self.req('POST','/api/action',{'action':'file-chmod','path':'demo/public/test.php','mode':'0600'},cookie=cookie)[0],403)
+            self.assertEqual(self.req('POST','/api/action',{'action':'file-chmod','path':'demo/public/test.php','mode':'0600'},cookie=cookie,csrf=csrf)[0],200)
+            self.assertEqual((root/'projects/demo/public/test.php').stat().st_mode & 0o777,0o600)
+            self.assertEqual(self.req('POST','/api/action',{'action':'file-delete','path':'demo/public/test.php','confirmation':'wrong'},cookie=cookie,csrf=csrf)[0],400)
+            code,_,body=self.req('POST','/api/action',{'action':'file-delete','path':'demo/public/test.php','confirmation':'demo/public/test.php'},cookie=cookie,csrf=csrf)
+            self.assertEqual(code,200,body)
+            self.assertFalse((root/'projects/demo/public/test.php').exists())
+            self.assertEqual((root/'projects/.maychu247-trash'/json.loads(body)['trash_id']/'item').read_text(),'saved through HTTP')
+            selected=root/'sites/one'
+            (selected/'projects/demo/public').mkdir(parents=True)
+            for config in ('compose.yaml','.env'):(selected/config).write_text('test only')
+            (selected/'site.json').write_text(json.dumps({'name':'one','domain':'one.example.com','port':29000}))
+            code,_,body=self.req('POST','/api/action',{'action':'file-upload','site':'one','path':'demo/public/isolated.txt','content':base64.b64encode(b'site only').decode()},cookie=cookie,csrf=csrf)
+            self.assertEqual(code,200,body)
+            self.assertFalse((root/'projects/demo/public/isolated.txt').exists())
+            self.assertEqual((selected/'projects/demo/public/isolated.txt').read_text(),'site only')
+            code,_,body=self.req('GET','/api/file?site=one&path=demo/public/isolated.txt',cookie=cookie)
+            self.assertEqual(code,200,body);self.assertEqual(json.loads(body)['text'],'site only')
+            self.assertEqual(self.req('GET','/api/files?site=missing',cookie=cookie)[0],400)
+            self.assertEqual(self.req('GET','/api/files?site=../one',cookie=cookie)[0],400)
+
+
 
     def test_mqtt_actions_require_csrf_and_never_forward_broker_password(self):
         cookie,csrf=self.login()
@@ -171,6 +193,24 @@ class DashboardTests(unittest.TestCase):
                 broker.assert_not_called()
                 self.assertEqual(self.req('POST','/api/action',data,cookie=cookie,csrf=csrf)[0],200)
                 broker.assert_called_once_with({k:data[k] for k in ('action','topic','payload')})
+
+    def test_sql_and_site_actions_csrf_and_strict_field_forwarding(self):
+        cookie,csrf=self.login()
+        for action in ('sql-query','delete-database','site-start','site-stop','site-check'):
+            data={'action':action,'name':'appdb','site':'one','query':'SELECT 1;',
+                  'confirmation':'RUN appdb','host':'evil','password':'SECRET','command':'id','root':'/etc'}
+            with patch.object(server,'agent',return_value=(200,{'message':'ok'})) as broker:
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie)[0],403)
+                broker.assert_not_called()
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie,csrf=csrf)[0],200)
+                keys=('action','name','query','confirmation','site') if action in ('sql-query','delete-database') else ('action','name')
+                broker.assert_called_once_with({key:data[key] for key in keys})
+
+    def test_refuses_site_using_dashboard_public_domain(self):
+        cookie,csrf=self.login()
+        with patch.object(server,'PUBLIC_ORIGIN','https://maychu247.uk'),patch.object(server,'agent') as broker:
+            self.assertEqual(self.req('POST','/api/action',{'action':'create-site','domain':'MAYCHU247.UK.'},cookie=cookie,csrf=csrf)[0],400)
+            broker.assert_not_called()
 
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()

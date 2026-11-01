@@ -1,0 +1,50 @@
+// DOM behavior checks, NOT a real browser / installed-server acceptance test.
+// Run with JSDOM_MODULE pointing to an externally installed jsdom module.
+const {JSDOM}=require(process.env.JSDOM_MODULE||'jsdom');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=path.join(__dirname,'../dashboard'),calls=[],prompts=[];
+const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{url:'https://maychu247.uk/',runScripts:'outside-only'});
+const w=dom.window,$=selector=>w.document.querySelector(selector);
+w.TextEncoder=TextEncoder;w.confirm=()=>true;w.prompt=()=>prompts.shift();
+w.HTMLElement.prototype.scrollIntoView=function(){};
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+w.HTMLDialogElement.prototype.close=function(){this.open=false;};
+const state={host:{cpu:1,cpus:2,load:[0],memory_used:1,memory_total:2,disk_used:1,disk_total:2,uptime_seconds:10,sampled_at:1},services:[],snapshots:[],job:{state:'idle',message:''},site_inventory:{items:[{name:'one',domain:'one.example.com',package:'starter',port:29000}],error:null}};
+w.fetch=async(url,options)=>{
+  const body=options.body?JSON.parse(options.body):null;calls.push({url,body,headers:options.headers});
+  let data={message:'Accepted fixture',output:'id\n<img src=x onerror="bad()">\n'};
+  if(url==='/api/session')data={csrf:'test-csrf'};
+  else if(url==='/api/status')data=state;
+  else if(url.startsWith('/api/resources'))data={folders:{items:[],error:null},databases:{items:['appdb'],error:null}};
+  else if(url.startsWith('/api/files'))data={path:'',entries:[{name:'index.php',kind:'file',bytes:5,mode:'0644',mtime:1}],truncated:false};
+  else if(url.startsWith('/api/file?'))data={path:'index.php',text:'hello',content:'aGVsbG8=',bytes:5,version:'0'.repeat(64)};
+  return {ok:true,status:200,json:async()=>data};
+};
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+const settle=async()=>{await tick();await tick();await tick();};
+(async()=>{
+ w.eval(fs.readFileSync(path.join(root,'app.js'),'utf8'));await settle();
+ assert.equal($('#workspace').hidden,false);
+ $('[data-tab="files"]').click();await settle();
+ assert.equal($('#native-file-list tr td').textContent,'▤ index.php');
+ const scope=$('[data-project-scope]');scope.value='one';scope.dispatchEvent(new w.Event('change'));await settle();
+ assert(calls.some(c=>c.url==='/api/files?path=&site=one'));
+ assert(calls.some(c=>c.url==='/api/resources?site=one'));
+ prompts.push('0600');await [...w.document.querySelectorAll('#native-file-list button')].find(b=>b.textContent==='Đổi quyền').onclick();await settle();
+ assert(calls.some(c=>c.body?.action==='file-chmod'&&c.body.site==='one'&&c.body.mode==='0600'));
+ prompts.push('index.php');await [...w.document.querySelectorAll('#native-file-list button')].find(b=>b.textContent==='Xóa').onclick();await settle();
+ assert(calls.some(c=>c.body?.action==='file-delete'&&c.body.confirmation==='index.php'&&c.body.site==='one'));
+ $('[data-tab="sql"]').click();await settle();
+ $('#sql-database').value='appdb';$('#sql-query').value='SELECT 1;';prompts.push('RUN appdb');
+ await $('#sql-form').onsubmit({preventDefault(){},currentTarget:$('#sql-form')});await settle();
+ assert(calls.some(c=>c.body?.action==='sql-query'&&c.body.site==='one'&&c.headers['X-CSRF-Token']==='test-csrf'));
+ assert.equal($('#sql-output img'),null);assert($('#sql-output').textContent.includes('<img'));
+ prompts.push('DELETE appdb');await [...w.document.querySelectorAll('#database-list button')].find(b=>b.textContent==='Xóa vĩnh viễn').onclick();await settle();
+ assert(calls.some(c=>c.body?.action==='delete-database'&&c.body.site==='one'));
+ $('[data-tab="sites"]').click();await settle();
+ await [...w.document.querySelectorAll('#site-inventory button')].find(b=>b.textContent==='Chạy / triển khai').onclick();await settle();
+ assert(calls.some(c=>c.body?.action==='site-start'&&c.body.name==='one'&&!('site' in c.body)));
+ await $('#logout').onclick();assert.equal($('#workspace').hidden,true);assert.equal($('#sql-query').value,'');
+ console.log('PASS: scope selection, native chmod/delete, SQL/delete-database, queued site control, text-only rendering and logout cleanup (mock API DOM test)');
+ dom.window.close();
+})().catch(error=>{console.error(error);dom.window.close();process.exitCode=1;});

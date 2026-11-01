@@ -144,6 +144,35 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(value['folders']['items'][0]['name'], 'demo')
             self.assertIsNotNone(value['databases']['error'])
 
+    def test_delete_database_exact_confirmation_and_no_system_drop(self):
+        with patch.object(agent,'database_sql',side_effect=['my_app','']) as query:
+            result=agent.delete_database('my_app','DELETE my_app')
+            self.assertIn('đã xóa',result['message'])
+            self.assertEqual(query.call_args_list[-1].args[0],'DROP DATABASE `my_app`;\n')
+        with patch.object(agent,'database_sql') as query:
+            for name,confirmation in [('my_app','wrong'),('mysql','DELETE mysql'),('sys','DELETE sys')]:
+                with self.assertRaises(ValueError):agent.delete_database(name,confirmation)
+            query.assert_not_called()
+        with patch.object(agent,'database_sql',return_value='') as query:
+            with self.assertRaises(ValueError):agent.delete_database('my_app','DELETE my_app')
+            self.assertEqual(query.call_count,1)
+
+    def test_all_create_database_steps_use_same_selected_project(self):
+        selected=Path('/selected/site')
+        with patch.object(agent,'database_sql',side_effect=['1','','','']) as query:
+            agent.create_database('new_app',selected)
+            self.assertTrue(all(call.args[1]==selected for call in query.call_args_list))
+
+    def test_site_lifecycle_is_real_queued_work_with_lock_and_no_claim_of_completion(self):
+        with patch.object(agent.site_manager,'project',return_value=Path('/selected')),patch.object(agent.site_manager,'lifecycle',return_value={'message':'Docker accepted'}) as lifecycle:
+            status,data=self.req({'action':'site-start','name':'one','command':'id'})
+            self.assertEqual(status,200)
+            self.assertIn('chưa xác nhận',data['message'])
+            self.assertTrue(agent.LOCK.acquire(timeout=2))
+            agent.LOCK.release()
+            lifecycle.assert_called_once_with(agent.ROOT,'one','site-start')
+            self.assertEqual(agent.JOB['state'],'done')
+
     def test_service_actions_blocked_during_job(self):
         agent.JOB['state'] = 'running'
         with patch.object(agent, 'compose') as compose:

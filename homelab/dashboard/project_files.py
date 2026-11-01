@@ -1,4 +1,4 @@
-"""Confined project file operations. No shell, absolute paths, symlink traversal or deletion."""
+"""Confined project file operations. No shell, absolute paths, symlink traversal or system paths."""
 import base64
 import hashlib
 import os
@@ -56,7 +56,7 @@ def browse(root, path):
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             kind = 'directory' if stat.S_ISDIR(info.st_mode) else 'file' if stat.S_ISREG(info.st_mode) else 'blocked'
             entries.append({'name': name, 'kind': kind, 'bytes': info.st_size,
-                            'mtime': int(info.st_mtime)})
+                            'mode': format(stat.S_IMODE(info.st_mode), '04o'), 'mtime': int(info.st_mtime)})
         entries.sort(key=lambda item: (item['kind'] != 'directory', item['name']))
         return {'path': path, 'entries': entries, 'truncated': len(names) > 200 or scanned >= 1000}
     finally:
@@ -215,3 +215,57 @@ def mkdir(root, path):
             os.close(child)
         os.close(parent)
     return {'message': 'Đã tạo thư mục thật trong projects.'}
+
+
+def chmod(root, path, mode):
+    """Only safe non-executable presets, no recursive chmod or ownership changes."""
+    values = parts(path)
+    parent = directory(root, values[:-1])
+    fd = None
+    try:
+        fd = os.open(values[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        info = os.fstat(fd)
+        allowed = ('0700', '0755') if stat.S_ISDIR(info.st_mode) else ('0600', '0644') if stat.S_ISREG(info.st_mode) else ()
+        if mode not in allowed or (stat.S_ISREG(info.st_mode) and info.st_nlink != 1):
+            raise ValueError('Chỉ cho phép file 0600/0644, thư mục 0700/0755; không hardlink, symlink hoặc thiết bị')
+        os.fchmod(fd, int(mode, 8))
+        return {'message': 'Đã đổi quyền ' + path + ' thành ' + mode + '. Không áp dụng đệ quy.'}
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(parent)
+
+
+def delete(root, path, confirmation):
+    """Move into private, hidden trash. Never recursively unlink project data."""
+    import json
+    values = parts(path)
+    if confirmation != path:
+        raise ValueError('Phải nhập lại đầy đủ đường dẫn để xác nhận xóa')
+    parent = directory(root, values[:-1])
+    base = trash = entry = None
+    try:
+        info = os.stat(values[-1], dir_fd=parent, follow_symlinks=False)
+        if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+            raise ValueError('Không xóa symlink/thiết bị')
+        base = directory(root, [])
+        try: os.mkdir('.maychu247-trash', 0o700, dir_fd=base)
+        except FileExistsError: pass
+        trash = os.open('.maychu247-trash', FLAGS, dir_fd=base)
+        os.fchmod(trash, 0o700)
+        if len(os.listdir(trash)) >= 100:
+            raise ValueError('Thùng rác đã có 100 mục; cần quản trị viên lưu trữ/dọn trước khi xóa tiếp')
+        identifier = secrets.token_hex(16)
+        os.mkdir(identifier, 0o700, dir_fd=trash)
+        entry = os.open(identifier, FLAGS, dir_fd=trash)
+        fd = os.open('info.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=entry)
+        try:
+            write_all(fd, json.dumps({'path': path}, ensure_ascii=False).encode())
+            os.fsync(fd)
+        finally: os.close(fd)
+        os.rename(values[-1], 'item', src_dir_fd=parent, dst_dir_fd=entry)
+        os.fsync(entry)
+        os.fsync(parent)
+        return {'message': 'Đã chuyển ' + path + ' vào thùng rác riêng. Website có thể ngừng hoạt động. Chưa có nút phục hồi/xóa vĩnh viễn.', 'trash_id': identifier}
+    finally:
+        for fd in (entry, trash, base, parent):
+            if fd is not None: os.close(fd)

@@ -142,13 +142,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path in ('/api/files', '/api/file'):
             query = parse_qs(urlsplit(self.path).query)
             try:
-                code, data = agent({'action': 'file-list' if path == '/api/files' else 'file-read', 'path': query.get('path', [''])[0]})
+                code, data = agent({'action': 'file-list' if path == '/api/files' else 'file-read', 'path': query.get('path', [''])[0], 'site': query.get('site', [''])[0]})
                 return self.reply(code, data)
             except Exception:
                 return self.reply(503, {'error': 'Không đọc được file; kiểm tra agent hoặc đường dẫn.'})
         if path == '/api/resources':
             try:
-                code, data = agent({'action': 'resources'})
+                code, data = agent({'action': 'resources', 'site': parse_qs(urlsplit(self.path).query).get('site', [''])[0]})
                 return self.reply(code, data)
             except Exception:
                 return self.reply(503, {'error': 'Không đọc được tài nguyên; kiểm tra agent.'})
@@ -216,22 +216,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'sql-query', 'delete-database', 'site-start', 'site-stop', 'site-check', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
             if data.get('action') == 'create-site':
+                if PUBLIC_ORIGIN and str(data.get('domain', '')).lower().rstrip('.') == urlsplit(PUBLIC_ORIGIN).hostname:
+                    return self.reply(400, {'error': 'Domain này đang dành cho dashboard. Không tạo website riêng trùng domain quản trị.'})
                 payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'package', 'port')}
             if data.get('action') in ('create-folder', 'create-database'):
                 payload = {key: data.get(key) for key in ('action', 'name')}
-            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir'):
-                payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version')}
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod'):
+                payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version', 'mode', 'confirmation')}
             if data.get('action') in ('mqtt-publish', 'mqtt-sample', 'mqtt-test'):
                 payload = {key: data.get(key) for key in ('action', 'topic', 'payload')}
+            if data.get('action') in ('sql-query', 'delete-database'):
+                payload = {key: data.get(key) for key in ('action', 'name', 'query', 'confirmation')}
+            if data.get('action') in ('site-start', 'site-stop', 'site-check'):
+                payload = {key: data.get(key) for key in ('action', 'name')}
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'sql-query', 'delete-database', 'create-folder', 'create-database'):
+                payload['site'] = data.get('site', '')
             status, result = agent(payload)
             return self.reply(status, result)
         except Exception:
-            return self.reply(503, {'error': 'Agent không phản hồi. Kiểm tra trạng thái qua SSH trước khi thử lại.'})
+            return self.reply(503, {'error': 'Agent không phản hồi. Chưa xác nhận thao tác hoàn tất; đọc lại trạng thái trước khi thử lại.'})
 
 
 if __name__ == '__main__':
