@@ -89,6 +89,25 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.req('POST', '/api/action', payload, cookie=cookie, csrf=csrf)[0], 200)
             broker.assert_called_once_with({k: payload[k] for k in ('action','name','domain','package','port')})
 
+    def test_public_domain_secure_cookie_and_origin_pairing(self):
+        with patch.object(server, 'PUBLIC_ORIGIN', 'https://panel.example.com'):
+            status, headers, body = self.req('POST','/api/login', {'password':'test-password'},
+                                            host='panel.example.com',origin='https://panel.example.com')
+            self.assertEqual(status,200)
+            self.assertIn('; Secure',headers['Set-Cookie'])
+            cookie=headers['Set-Cookie'].split(';')[0]
+            csrf=json.loads(body)['csrf']
+            self.assertEqual(self.req('POST','/api/logout',{},cookie=cookie,csrf=csrf,
+                                     host='panel.example.com',origin='http://panel.example.com')[0],403)
+            self.assertEqual(self.req('POST','/api/logout',{},cookie=cookie,csrf=csrf,
+                                     host='panel.example.com',origin='https://panel.example.com')[0],200)
+            self.assertEqual(self.req('GET','/',host='evil.example.com')[0],403)
+
+    def test_public_origin_configuration_is_exact(self):
+        self.assertEqual(server.configured_origin('https://panel.example.com'),'https://panel.example.com')
+        for origin in ('http://panel.example.com','https://*.example.com','https://panel.example.com/path','https://panel.example.com:443','https://user@panel.example.com'):
+            with self.assertRaises(ValueError):server.configured_origin(origin)
+
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()
         self.assertEqual(self.req('POST', '/api/logout', {}, cookie=cookie, csrf=csrf)[0], 200)

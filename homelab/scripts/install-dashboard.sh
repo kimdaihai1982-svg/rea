@@ -129,6 +129,7 @@ Requires=maychu247-agent.service
 Type=simple
 User=maychu247-ui
 Group=maychu247-ui
+EnvironmentFile=-/etc/maychu247-ui/public.env
 ExecStart=/usr/bin/python3 /usr/local/lib/maychu247-dashboard/server.py
 Restart=on-failure
 NoNewPrivileges=true

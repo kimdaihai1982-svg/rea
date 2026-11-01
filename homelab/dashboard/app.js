@@ -101,3 +101,11 @@ $('#site-form').onsubmit=async e=>{
   catch(err){$('#site-form-error').textContent=err.message;}
   finally{busy=false;$('#site-submit').disabled=false;}
 };
+
+// Public dashboard does not expose the SQL/file/website loopback ports of a visitor's PC.
+if(location.protocol==='https:' && !['localhost','127.0.0.1'].includes(location.hostname)){
+  document.querySelectorAll('a[href^="http://localhost:"],a[href^="http://127.0.0.1:"]').forEach(a=>{
+    a.removeAttribute('href');a.setAttribute('aria-disabled','true');a.textContent='Dùng SSH tunnel để mở công cụ này';
+    a.onclick=e=>{e.preventDefault();notify('Dashboard qua domain chỉ quản lý API. SQL/File Browser/website vẫn cần SSH forwarding riêng.');};
+  });
+}

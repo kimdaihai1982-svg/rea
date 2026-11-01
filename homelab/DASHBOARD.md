@@ -1,3 +1,10 @@
+# Mới: domain HTTPS tùy chọn cho dashboard
+
+Xem PUBLIC-DOMAIN.md. Cần update code/systemd rồi chạy configure-public.sh với hostname cụ thể,
+Tunnel MỚI RIÊNG và Access do người quản trị cấu hình. Không mở 18000 ra LAN/WAN. Các ghi chú
+SSH-only ở phiên bản cũ bên dưới không còn áp dụng nếu đã bật public origin đúng quy trình.
+Chức năng SQL/File Browser vẫn dùng SSH riêng, không có public proxy hoặc SSO.
+
 # Cập nhật: workspace riêng và tạo tên dự án qua giao diện
 
 Menu mới tách Website & Domain, Cơ sở dữ liệu, Tập tin, MQTT & Thiết bị, Giám sát, Sao lưu.

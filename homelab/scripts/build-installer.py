@@ -8,7 +8,7 @@ import tarfile
 
 root = Path(__file__).resolve().parent.parent
 allowed = ['compose.yaml', '.env.example', '.gitignore', 'README.md', 'SECURITY.md',
-           'MULTISITE.md', 'DASHBOARD.md', 'packages.json', 'preview.html']
+           'PUBLIC-DOMAIN.md', 'MULTISITE.md', 'DASHBOARD.md', 'packages.json', 'preview.html']
 for directory in ['config', 'php', 'portal', 'scripts', 'dashboard', 'projects/demo/public']:
     allowed.extend(str(p.relative_to(root)) for p in (root / directory).rglob('*')
                    if p.is_file() and not p.is_symlink() and '__pycache__' not in p.parts
@@ -123,9 +123,10 @@ if 'profiles: [legacy-kuma]' not in s:
 PROFILE
   install -d -m 755 "$TARGET/dashboard"
   install -m 644 "$work/source/dashboard/"* "$TARGET/dashboard/"
-  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$work/source/scripts/backup.sh" "$work/source/scripts/restore.sh" "$work/source/scripts/create-site.py" "$TARGET/scripts/"
+  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$work/source/scripts/backup.sh" "$work/source/scripts/restore.sh" "$work/source/scripts/create-site.py" "$work/source/scripts/configure-public.sh" "$TARGET/scripts/"
   install -m 644 "$work/source/DASHBOARD.md" "$TARGET/DASHBOARD.md"
   install -m 644 "$work/source/MULTISITE.md" "$TARGET/MULTISITE.md"
+  install -m 644 "$work/source/PUBLIC-DOMAIN.md" "$TARGET/PUBLIC-DOMAIN.md"
   bash "$TARGET/scripts/install-dashboard.sh"
   echo 'Dashboard đã được cập nhật. Mở http://localhost:18000 qua SSH tunnel và nghiệm thu theo DASHBOARD.md.'
   exit 0

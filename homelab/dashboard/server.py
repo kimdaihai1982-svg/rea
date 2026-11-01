@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import shutil
 import socket
 import threading
@@ -16,6 +17,19 @@ import time
 from urllib.parse import urlsplit
 from monitor import Monitor
 
+def configured_origin(value):
+    if not value:
+        return ''
+    parsed = urlsplit(value)
+    if (parsed.scheme != 'https' or parsed.netloc != parsed.hostname or
+        parsed.path or parsed.query or parsed.fragment or
+        not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', parsed.netloc) or
+        '.' not in parsed.netloc):
+        raise ValueError('MAYCHU247_PUBLIC_ORIGIN phải là https://hostname cụ thể, không path/port/wildcard')
+    return value
+
+
+PUBLIC_ORIGIN = configured_origin(os.environ.get('MAYCHU247_PUBLIC_ORIGIN', ''))
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.environ.get('MAYCHU247_AUTH', '/etc/maychu247-ui/auth.json'))
 SESSIONS = {}
@@ -104,12 +118,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return None
 
     def valid_host(self):
-        # This release is deliberately SSH-tunnel only. Reject DNS-rebinding hosts.
-        return self.headers.get('Host', '') in ('localhost:18000', '127.0.0.1:18000')
+        host = self.headers.get('Host', '')
+        return host in ('localhost:18000', '127.0.0.1:18000') or bool(PUBLIC_ORIGIN and host == urlsplit(PUBLIC_ORIGIN).netloc)
+
+    def secure_cookie(self):
+        return '; Secure' if PUBLIC_ORIGIN and self.headers.get('Host') == urlsplit(PUBLIC_ORIGIN).netloc else ''
 
     def do_GET(self):
         if not self.valid_host():
-            return self.reply(403, {'error': 'Chỉ truy cập qua SSH tunnel localhost:18000'})
+            return self.reply(403, {'error': 'Hostname chưa được cho phép; dùng SSH tunnel hoặc domain đã cấu hình'})
         path = urlsplit(self.path).path
         static = {'/': ('index.html', 'text/html; charset=utf-8'),
                   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
@@ -136,8 +153,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.valid_host():
             return self.reply(403, {'error': 'Host không được phép'})
-        # Exact same-origin policy; SSH forwarding is plaintext only on loopback.
-        if self.headers.get('Origin') not in ('http://localhost:18000', 'http://127.0.0.1:18000'):
+        # Exact host/origin pairing. Never trust arbitrary forwarded headers.
+        expected = PUBLIC_ORIGIN if PUBLIC_ORIGIN and self.headers.get('Host') == urlsplit(PUBLIC_ORIGIN).netloc else 'http://' + self.headers.get('Host', '')
+        if self.headers.get('Origin') != expected:
             return self.reply(403, {'error': 'Origin không được phép'})
         if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
             return self.reply(415, {'error': 'Cần JSON'})
@@ -172,7 +190,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if len(SESSIONS) >= 20:
                     return self.reply(429, {'error': 'Quá nhiều phiên đăng nhập'})
                 SESSIONS[token] = {'csrf': csrf, 'expires': now + SESSION_TTL}
-            return self.reply(200, {'csrf': csrf}, cookie=f'session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}')
+            return self.reply(200, {'csrf': csrf}, cookie=f'session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}' + self.secure_cookie())
         session = self.session()
         if not session:
             return self.reply(401, {'error': 'Phiên hết hạn; đăng nhập lại'})
@@ -181,7 +199,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == '/api/logout':
             with AUTH_LOCK:
                 SESSIONS.pop(session[0], None)
-            return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
+            return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
         if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site'):
