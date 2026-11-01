@@ -1,3 +1,30 @@
+# Cập nhật: giám sát MayChu247 nội bộ, không dùng Kuma mặc định
+
+Bản mới dùng `dashboard/monitor.py` (Python stdlib) với mục **Giám sát nội bộ**. Không cần
+Kuma, tài khoản giám sát thứ hai hoặc thư viện Python ngoài. Mỗi 30 giây kiểm tra HTTP 200
+của website tại 127.0.0.1:18080; kiểm tra TCP tại MQTT 1884, File Browser 18082, SQL Admin 18081.
+Đây là kiểm tra khả dụng, không phải công cụ chống xâm nhập. TCP mở không chứng minh đăng nhập,
+MQTT pub/sub hoặc query SQL đúng. Không có URL/port do người dùng nhập để tránh mở API quét mạng.
+
+Mỗi dòng có thời điểm đo, độ trễ, phạm vi kiểm tra. Sự kiện đổi trạng thái giữ tối đa 100 trong
+RAM, mất khi restart UI. Chưa có email/SMS/Telegram, lưu lịch sử dài hạn, hoặc monitor ngoài máy.
+Số liệu chỉ cập nhật khi dashboard backend hoạt động; toàn máy ngừng thì monitor cũng ngừng.
+Tự viết không đảm bảo an toàn hơn phần mềm có sẵn: vẫn cần review, vá lỗi và nghiệm thu.
+
+Updater `--update-dashboard` dừng container Kuma của đúng project MayChu247 và đặt nó sau
+profile `legacy-kuma`. Không xóa volume/dữ liệu Kuma. Bản mới không khởi chạy, điều khiển hoặc
+sao lưu Kuma mặc định. Snapshot cũ có kuma.tgz vẫn giữ nguyên; restore mới không nhập archive
+Kuma. Nếu restore snapshot cũ có compose cũ, phải đối chiếu cấu hình/profile trước khi mở traffic
+vì cấu hình cũ có thể bật lại dịch vụ. Không dùng restore để rollback giám sát một cách mù quáng.
+Backup mới chỉ bật lại web/mqtt/files vốn đang chạy trước khi chụp, không bật lại dịch vụ đã dừng.
+
+**Phạm vi lần thay thế này chỉ là giám sát:** PHP/Nginx/MariaDB/Mosquitto và công cụ Adminer,
+File Browser vẫn là các thành phần nguồn mở. Không tuyên bố đã tự viết toàn bộ hệ điều hành,
+web server hay giao thức database. Các đề cập Kuma trong hướng dẫn phiên bản cũ dưới đây là
+lịch sử, không phải kiến trúc mặc định mới.
+
+---
+
 # Personal Operations v1 — dashboard có backend thật
 
 ## Phân biệt với preview

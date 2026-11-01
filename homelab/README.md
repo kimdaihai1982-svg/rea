@@ -4,6 +4,11 @@
 Đọc [DASHBOARD.md](DASHBOARD.md) để cài/cập nhật, xem giới hạn và quy trình nghiệm thu.
 Dashboard mới không phải preview, nhưng chưa có đủ GUI cho mọi chức năng hosting.
 
+**Giám sát mới:** tab Giám sát nội bộ do MayChu247 thiết kế, dùng Python stdlib để kiểm tra
+HTTP/TCP loopback. Kuma đã chuyển sang legacy profile, không chạy mặc định; updater dừng
+container cũ nhưng giữ volume. Đọc phần đầu DASHBOARD.md để biết giới hạn. Một số hướng dẫn
+Kuma bên dưới thuộc bản trước và không còn là quy trình giám sát mặc định.
+
 ## Bộ Docker nền
 
 **Đây là cấu hình khởi điểm cần nghiệm thu, không phải chứng nhận production/HA.**
@@ -45,7 +50,7 @@ Mặc định **tất cả cổng chỉ bind 127.0.0.1**, SQL không publish c�
 Trên PC mở terminal (giữ kết nối):
 
 ```bash
-ssh -L 18000:127.0.0.1:18000 -L 18080:127.0.0.1:18080 -L 18081:127.0.0.1:18081 -L 18082:127.0.0.1:18082 -L 13001:127.0.0.1:13001 kimdaihai@192.168.1.11
+ssh -L 18000:127.0.0.1:18000 -L 18080:127.0.0.1:18080 -L 18081:127.0.0.1:18081 -L 18082:127.0.0.1:18082 kimdaihai@192.168.1.11
 ```
 
 Mở `http://localhost:18000` trên PC:
@@ -56,7 +61,7 @@ Mở `http://localhost:18000` trên PC:
 | PHP + Nginx | 18080 | PHP-FPM + OPcache, mẫu kiểm tra DB |
 | Adminer | 18081 | MariaDB server `db`, database `appdb`, user `appuser`, mật khẩu trong `.env` |
 | File Browser | 18082 | Upload/chỉnh sửa trong `projects/` (chỉ cấp cho admin tin cậy) |
-| Uptime Kuma | 13001 | Giám sát và thông báo, tạo admin ngay lần đầu |
+| Giám sát nội bộ | 18000 | Trong dashboard; HTTP/TCP cố định, chưa có cảnh báo ngoài máy |
 
 File Browser bản được dùng sinh mật khẩu ban đầu trong log: `docker compose logs files`.
 Nếu không có mật khẩu sinh tự động, kiểm tra hướng dẫn phiên bản image trước khi mở truy cập;

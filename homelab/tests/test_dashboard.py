@@ -6,11 +6,13 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import sys
 import threading
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'dashboard'))
 spec = importlib.util.spec_from_file_location('dashboard_server', ROOT / 'dashboard/server.py')
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)

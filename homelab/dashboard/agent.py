@@ -13,7 +13,7 @@ import time
 
 ROOT = Path('/opt/maychu247-v2')
 SOCKET = '/run/maychu247/agent.sock'
-SERVICES = {'web', 'db', 'adminer', 'mqtt', 'kuma', 'files'}
+SERVICES = {'web', 'db', 'adminer', 'mqtt', 'files'}
 LOCK = threading.Lock()
 JOB = {'state': 'idle', 'message': 'Chưa chạy backup trong phiên agent này'}
 

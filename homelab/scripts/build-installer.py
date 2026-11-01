@@ -109,10 +109,16 @@ if 'profiles: [legacy-portal]' not in s:
         raise SystemExit('Compose đã tùy chỉnh: không tự sửa portal. Cần đối chiếu thủ công.')
     s=s.replace(needle,needle+'    profiles: [legacy-portal]\n',1)
     p.write_text(s)
+if 'profiles: [legacy-kuma]' not in s:
+    needle='  kuma:\n    <<: *service\n'
+    if s.count(needle)!=1:
+        raise SystemExit('Cấu hình kuma đã tùy chỉnh: cần đối chiếu thủ công.')
+    s=s.replace(needle,needle+'    profiles: [legacy-kuma]\n',1)
+    p.write_text(s)
 PROFILE
   install -d -m 755 "$TARGET/dashboard"
   install -m 644 "$work/source/dashboard/"* "$TARGET/dashboard/"
-  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$TARGET/scripts/"
+  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$work/source/scripts/backup.sh" "$work/source/scripts/restore.sh" "$TARGET/scripts/"
   install -m 644 "$work/source/DASHBOARD.md" "$TARGET/DASHBOARD.md"
   bash "$TARGET/scripts/install-dashboard.sh"
   echo 'Dashboard đã được cập nhật. Mở http://localhost:18000 qua SSH tunnel và nghiệm thu theo DASHBOARD.md.'
@@ -126,12 +132,12 @@ docker info >/dev/null
 [[ -z $(docker volume ls -q --filter label=com.docker.compose.project=maychu247-v2) ]] || { echo 'Đã có volume project maychu247-v2: từ chối tái sử dụng dữ liệu không rõ nguồn'; exit 1; }
 python3 - <<'PORTS'
 import socket
-for port in [18000,18080,18081,18082,13001,1884,19001]:
+for port in [18000,18080,18081,18082,1884,19001]:
     with socket.socket() as s:
         try: s.bind(('127.0.0.1', port))
         except OSError: raise SystemExit(f'Port {port} đang dùng: không triển khai')
 PORTS
-echo 'Kế hoạch: tạo /opt/maychu247-v2; chạy 6 dịch vụ Docker và dashboard systemd có đăng nhập.'
+echo 'Kế hoạch: tạo /opt/maychu247-v2; chạy 5 dịch vụ Docker và dashboard systemd có đăng nhập.'
 echo 'Không sửa /opt/stack, firewall, SSH, DNS hoặc Cloudflare. SQL mới ban đầu rỗng.'
 echo 'Mặc định UI chỉ nghe 127.0.0.1. Có thể tăng tải CPU/RAM/đĩa của server.'
 echo 'Nên backup hệ thống hiện tại trước khi tiếp tục.'
@@ -153,7 +159,7 @@ Kiểm tra: cd /opt/maychu247-v2 && sudo docker compose ps
 Đọc hướng dẫn: /opt/maychu247-v2/README.md
 Mật khẩu mới: .env; File Browser: sudo docker compose logs files (đổi ngay).
 Trên PC mở SSH forwarding:
-ssh -L 18000:127.0.0.1:18000 -L 18080:127.0.0.1:18080 -L 18081:127.0.0.1:18081 -L 18082:127.0.0.1:18082 -L 13001:127.0.0.1:13001 kimdaihai@192.168.1.11
+ssh -L 18000:127.0.0.1:18000 -L 18080:127.0.0.1:18080 -L 18081:127.0.0.1:18081 -L 18082:127.0.0.1:18082 kimdaihai@192.168.1.11
 Sau đó mở http://localhost:18000 trên PC.
 Chạy thử backup trước khi bật lịch:
 sudo bash /opt/maychu247-v2/scripts/backup-all.sh

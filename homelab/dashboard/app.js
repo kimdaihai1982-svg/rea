@@ -28,9 +28,10 @@ async function refresh(){
     $('#job').textContent=data.job.state+' · '+data.job.message;$('#backup').disabled=data.job.state==='running';
     $('#service-list').replaceChildren();$('#health-list').replaceChildren();
     data.services.forEach(s=>{const r=document.createElement('tr');textCell(r,s.Service);textCell(r,s.State);textCell(r,s.Health||'Không khai báo healthcheck');const c=textCell(r,'');
-      if(['web','db','mqtt','adminer','files','kuma'].includes(s.Service))['start','stop','restart'].forEach(a=>{const b=document.createElement('button');b.textContent={start:'Chạy',stop:'Dừng',restart:'Khởi động lại'}[a];b.disabled=data.job.state==='running';b.onclick=()=>action({action:a,service:s.Service});c.append(b);});$('#service-list').append(r);
+      if(['web','db','mqtt','adminer','files'].includes(s.Service))['start','stop','restart'].forEach(a=>{const b=document.createElement('button');b.textContent={start:'Chạy',stop:'Dừng',restart:'Khởi động lại'}[a];b.disabled=data.job.state==='running';b.onclick=()=>action({action:a,service:s.Service});c.append(b);});$('#service-list').append(r);
       const row=document.createElement('div');row.className='health';const name=document.createElement('span');name.textContent=s.Service;const badge=document.createElement('span');badge.className='badge'+(s.State!=='running'||s.Health==='unhealthy'?' warn':'');badge.textContent=s.State+' · '+(s.Health||'Không healthcheck');row.append(name,badge);$('#health-list').append(row);
     });
+    renderMonitor(data.monitor);
     $('#snapshot-list').replaceChildren();data.snapshots.forEach(s=>{const r=document.createElement('tr');textCell(r,s.name);textCell(r,bytes(s.bytes));textCell(r,s.checksum);$('#snapshot-list').append(r);});
     if(!data.snapshots.length){const r=document.createElement('tr');textCell(r,'Chưa tìm thấy snapshot stack chính');$('#snapshot-list').append(r);}
   }catch(e){$('#connection').textContent='⚠ Không xác minh được trạng thái';$('#updated').textContent='Dữ liệu có thể đã cũ · '+e.message;notify(e.message);}finally{$('#refresh').disabled=false;}
@@ -55,3 +56,14 @@ document.querySelectorAll('.copy-command').forEach(b=>b.onclick=async()=>{
   try{await navigator.clipboard.writeText(code.textContent);notify('Đã sao chép. Đọc kỹ rồi tự chạy ở đúng máy; dashboard không thực thi lệnh này.');}
   catch{const range=document.createRange();range.selectNodeContents(code);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);notify('Trình duyệt chưa cho phép clipboard. Đã chọn nội dung; dùng Ctrl+C hoặc Sao chép.');}
 });
+
+function renderMonitor(m){
+  $('#probe-list').replaceChildren();$('#probe-events').replaceChildren();
+  if(!m){$('#probe-notice').textContent='Agent/UI chưa có dữ liệu giám sát. Không suy ra dịch vụ khỏe.';return;}
+  $('#probe-notice').textContent='Chu kỳ '+m.interval_seconds+' giây. '+m.notice;
+  const stateLabel=s=>({up:'Đạt',down:'Không đạt',unknown:'Chưa đo'}[s]||s);
+  m.targets.forEach(t=>{const r=document.createElement('tr');textCell(r,t.name);textCell(r,t.scope);textCell(r,stateLabel(t.state));textCell(r,t.latency_ms===null?'—':t.latency_ms+' ms');textCell(r,t.checked_at?new Date(t.checked_at*1000).toLocaleTimeString('vi-VN'):'Chưa đo');$('#probe-list').append(r);});
+  m.events.forEach(e=>{const r=document.createElement('tr');textCell(r,new Date(e.time*1000).toLocaleString('vi-VN'));textCell(r,e.name);textCell(r,stateLabel(e.from)+' → '+stateLabel(e.to));textCell(r,e.detail);$('#probe-events').append(r);});
+  if(!m.events.length){const r=document.createElement('tr');textCell(r,'Chưa có sự kiện trong phiên này');$('#probe-events').append(r);}
+}
+document.querySelectorAll('[data-jump-tab]').forEach(b=>b.onclick=()=>document.querySelector('[data-tab="'+b.dataset.jumpTab+'"]').click());

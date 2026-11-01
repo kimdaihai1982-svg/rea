@@ -36,9 +36,9 @@ fi
 chown root:maychu247-ui /etc/maychu247-ui/auth.json
 chmod 640 /etc/maychu247-ui/auth.json
 install -d -m 755 /usr/local/lib/maychu247-dashboard
-install -m 644 dashboard/{server.py,agent.py,index.html,app.js,style.css} /usr/local/lib/maychu247-dashboard/
+install -m 644 dashboard/{server.py,agent.py,monitor.py,index.html,app.js,style.css} /usr/local/lib/maychu247-dashboard/
 # Only stop the old link-only portal from THIS Compose project, not any other stack.
-docker compose stop portal
+docker compose stop portal kuma
 systemctl stop maychu247-dashboard.service maychu247-agent.service 2>/dev/null || true
 python3 - <<'PY'
 import socket

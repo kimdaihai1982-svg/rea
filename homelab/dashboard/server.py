@@ -14,6 +14,7 @@ import socket
 import threading
 import time
 from urllib.parse import urlsplit
+from monitor import Monitor
 
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.environ.get('MAYCHU247_AUTH', '/etc/maychu247-ui/auth.json'))
@@ -21,6 +22,7 @@ SESSIONS = {}
 ATTEMPTS = []
 AUTH_LOCK = threading.Lock()
 SESSION_TTL = 3600
+MONITOR = Monitor()
 LAST_CPU = None
 METRIC_LOCK = threading.Lock()
 
@@ -125,6 +127,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 status, data = agent({'action': 'status'})
                 data['host'] = metrics()
                 data['offsite'] = 'Chưa tích hợp/xác minh'
+                data['monitor'] = MONITOR.snapshot()
                 return self.reply(status, data)
             except Exception:
                 return self.reply(503, {'error': 'Không kết nối được agent; không hiển thị số liệu giả.'})
@@ -191,6 +194,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    MONITOR.start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 18000), Handler)
     server.daemon_threads = True
     server.serve_forever()
