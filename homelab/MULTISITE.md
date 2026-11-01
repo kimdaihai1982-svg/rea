@@ -1,6 +1,7 @@
 # Nhiều website, database và domain riêng
 
-Đây là bộ tạo cấu hình CLI có bước duyệt, **chưa có web form cấp hosting/billing tự động**.
+Có thể tạo cấu hình qua **Website & Domain → Tạo website mới** hoặc CLI dưới đây.
+Web form chưa khởi động container/tạo DNS và không phải hệ thống billing/provisioning hoàn chỉnh.
 Không cấp khách quyền Cockpit/File Browser của stack chính. Mỗi site là một Compose project
 riêng, network riêng, MariaDB riêng, database `appdb`/user `appuser` nhưng secret khác nhau.
 Không chia sẻ PHP process hoặc DB instance giữa các site.

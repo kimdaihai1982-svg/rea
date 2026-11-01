@@ -11,6 +11,7 @@ class Elements(HTMLParser):
         super().__init__()
         self.ids = []
         self.guide_targets = []
+        self.tabs = []
         self.copy_predecessors = []
         self.previous_end = None
 
@@ -18,6 +19,8 @@ class Elements(HTMLParser):
         attrs = dict(attrs)
         if 'id' in attrs:
             self.ids.append(attrs['id'])
+        if 'data-tab' in attrs:
+            self.tabs.append(attrs['data-tab'])
         if 'data-open-guide' in attrs:
             self.guide_targets.append(attrs['data-open-guide'])
         if 'copy-command' in attrs.get('class', '').split():
@@ -33,6 +36,11 @@ class GuideTests(unittest.TestCase):
         tree.feed((ROOT / 'dashboard/index.html').read_text())
         self.assertEqual(len(tree.ids), len(set(tree.ids)))
         self.assertIn('guide', tree.ids)
+        for tab in tree.tabs:
+            self.assertIn(tab, tree.ids)
+        for tab in ('sites', 'sql', 'files', 'mqtt'):
+            self.assertIn(tab, tree.tabs)
+        self.assertIn('site-form', tree.ids)
         self.assertTrue(tree.guide_targets)
         for target in tree.guide_targets:
             self.assertIn(target, tree.ids)

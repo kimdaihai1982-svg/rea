@@ -118,8 +118,9 @@ if 'profiles: [legacy-kuma]' not in s:
 PROFILE
   install -d -m 755 "$TARGET/dashboard"
   install -m 644 "$work/source/dashboard/"* "$TARGET/dashboard/"
-  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$work/source/scripts/backup.sh" "$work/source/scripts/restore.sh" "$TARGET/scripts/"
+  install -m 700 "$work/source/scripts/install-dashboard.sh" "$work/source/scripts/reset-dashboard-password.sh" "$work/source/scripts/backup.sh" "$work/source/scripts/restore.sh" "$work/source/scripts/create-site.py" "$TARGET/scripts/"
   install -m 644 "$work/source/DASHBOARD.md" "$TARGET/DASHBOARD.md"
+  install -m 644 "$work/source/MULTISITE.md" "$TARGET/MULTISITE.md"
   bash "$TARGET/scripts/install-dashboard.sh"
   echo 'Dashboard đã được cập nhật. Mở http://localhost:18000 qua SSH tunnel và nghiệm thu theo DASHBOARD.md.'
   exit 0

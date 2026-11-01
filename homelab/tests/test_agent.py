@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import socket
+import shutil
 import tempfile
 import threading
 import unittest
@@ -57,6 +58,32 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(data['services'][0]['Health'], 'healthy')
             self.assertNotIn('SECRET', json.dumps(data))
+
+    def test_create_site_real_generator_and_private_inventory(self):
+        root = Path(self.temp.name) / 'stack'
+        root.mkdir()
+        for name in ('scripts', 'config', 'projects', 'php'):
+            shutil.copytree(ROOT / name, root / name)
+        shutil.copy2(ROOT / 'packages.json', root / 'packages.json')
+        with patch.object(agent, 'ROOT', root):
+            status, result = self.req({'action': 'create-site', 'name': 'my-shop',
+                                      'domain': 'shop.example.com', 'package': 'starter', 'port': 28991})
+            self.assertEqual(status, 200, result)
+            folder = root / 'sites/my-shop'
+            self.assertTrue((folder / 'compose.yaml').is_file())
+            self.assertEqual((folder / '.env').stat().st_mode & 0o777, 0o600)
+            secret = (folder / '.env').read_text().splitlines()[0].split('=')[1]
+            inventory = agent.site_inventory()
+            self.assertEqual(inventory['items'][0]['name'], 'my-shop')
+            self.assertNotIn(secret, json.dumps(inventory) + json.dumps(result))
+            status, _ = self.req({'action': 'create-site', 'name': 'my-shop',
+                                 'domain': 'shop.example.com', 'package': 'starter', 'port': 28991})
+            self.assertEqual(status, 400)
+            self.assertEqual((folder / '.env').read_text().splitlines()[0].split('=')[1], secret)
+            status, _ = self.req({'action': 'create-site', 'name': '../escape',
+                                 'domain': 'other.example.com', 'package': 'starter', 'port': 28992})
+            self.assertEqual(status, 400)
+            self.assertFalse((root / 'escape').exists())
 
     def test_service_actions_blocked_during_job(self):
         agent.JOB['state'] = 'running'

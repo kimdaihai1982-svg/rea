@@ -32,6 +32,10 @@ async function refresh(){
       const row=document.createElement('div');row.className='health';const name=document.createElement('span');name.textContent=s.Service;const badge=document.createElement('span');badge.className='badge'+(s.State!=='running'||s.Health==='unhealthy'?' warn':'');badge.textContent=s.State+' · '+(s.Health||'Không healthcheck');row.append(name,badge);$('#health-list').append(row);
     });
     renderMonitor(data.monitor);
+    renderSites(data.site_inventory);
+    const mqtt=data.services.find(s=>s.Service==='mqtt');
+    $('#mqtt-state').textContent=mqtt?(mqtt.State+' · '+(mqtt.Health||'Không healthcheck')):'Chưa thấy container MQTT';
+    document.querySelectorAll('[data-service-action]').forEach(b=>b.disabled=data.job.state==='running');
     $('#snapshot-list').replaceChildren();data.snapshots.forEach(s=>{const r=document.createElement('tr');textCell(r,s.name);textCell(r,bytes(s.bytes));textCell(r,s.checksum);$('#snapshot-list').append(r);});
     if(!data.snapshots.length){const r=document.createElement('tr');textCell(r,'Chưa tìm thấy snapshot stack chính');$('#snapshot-list').append(r);}
   }catch(e){$('#connection').textContent='⚠ Không xác minh được trạng thái';$('#updated').textContent='Dữ liệu có thể đã cũ · '+e.message;notify(e.message);}finally{$('#refresh').disabled=false;}
@@ -39,7 +43,7 @@ async function refresh(){
 $('#login-form').onsubmit=async e=>{e.preventDefault();try{await request('/api/login',{password:$('#password').value});$('#password').value='';await showWorkspace();}catch(err){notify(err.message);}};
 $('#logout').onclick=async()=>{try{await request('/api/logout',{});}catch(e){notify(e.message);}showLogin();};
 $('#refresh').onclick=refresh;$('#backup').onclick=()=>action({action:'backup'});
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.tab').forEach(x=>x.hidden=x.id!==b.dataset.tab);$('#title').textContent=b.textContent.slice(2).trim();});
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.tab').forEach(x=>x.hidden=x.id!==b.dataset.tab);$('#title').textContent=b.textContent.replace(/^[^\p{L}\p{N}]+/u,'').trim();document.querySelectorAll('[data-tab]').forEach(x=>{if(x===b)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});});
 showWorkspace().catch(()=>showLogin());
 
 // Guide navigation changes only the local page; it never executes server commands.
@@ -67,3 +71,33 @@ function renderMonitor(m){
   if(!m.events.length){const r=document.createElement('tr');textCell(r,'Chưa có sự kiện trong phiên này');$('#probe-events').append(r);}
 }
 document.querySelectorAll('[data-jump-tab]').forEach(b=>b.onclick=()=>document.querySelector('[data-tab="'+b.dataset.jumpTab+'"]').click());
+
+function showSiteCommands(site){
+  if(!/^[a-z][a-z0-9-]{0,31}$/.test(site.name)){notify('Tên site không hợp lệ. Kiểm tra inventory qua SSH.');return;}
+  $('#site-next').hidden=false;
+  $('#site-next-title').textContent='Triển khai dự án: '+site.name;
+  $('#site-next-code').textContent="sudo bash -c 'cd /opt/maychu247-v2/sites/"+site.name+" && docker compose config --quiet && docker compose up -d --build'";
+  $('#site-next').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderSites(inventory){
+  $('#site-inventory').replaceChildren();
+  if(!inventory){$('#inventory-note').textContent='Chưa nhận inventory. Cần cập nhật cả UI và agent.';$('#site-count').textContent='Chưa xác minh';return;}
+  $('#site-count').textContent=inventory.items.length+' cấu hình';
+  $('#inventory-note').textContent=inventory.error||'Đọc từ metadata trên server. Không suy ra site đang chạy hoặc domain đã kết nối.';
+  inventory.items.forEach(site=>{const r=document.createElement('tr');textCell(r,site.name);textCell(r,site.domain);textCell(r,site.package);textCell(r,site.port);const c=textCell(r,'');const b=document.createElement('button');b.textContent='Xem lệnh triển khai';b.onclick=()=>showSiteCommands(site);c.append(b);$('#site-inventory').append(r);});
+  if(!inventory.items.length){const r=document.createElement('tr');textCell(r,'Chưa có cấu hình site riêng. Bấm Tạo website mới để bắt đầu.');$('#site-inventory').append(r);}
+}
+document.querySelectorAll('[data-service-action]').forEach(b=>b.onclick=()=>action({action:b.dataset.serviceAction,service:b.dataset.service}));
+$('#new-site').onclick=()=>{$('#site-form-error').textContent='';$('#site-dialog').showModal();};
+$('#close-site').onclick=()=>{if(!$('#site-submit').disabled)$('#site-dialog').close();};
+$('#site-dialog').addEventListener('cancel',e=>{if($('#site-submit').disabled)e.preventDefault();});
+$('#site-form').onsubmit=async e=>{
+  e.preventDefault();if(busy)return;
+  const form=new FormData(e.currentTarget);
+  const data={action:'create-site',name:String(form.get('name')).trim(),domain:String(form.get('domain')).trim().toLowerCase(),package:String(form.get('package')),port:Number(form.get('port'))};
+  if(!confirm('Tạo cấu hình thật cho '+data.name+'? Chưa chạy website hoặc tạo DNS.'))return;
+  busy=true;$('#site-submit').disabled=true;$('#site-form-error').textContent='';
+  try{const result=await request('/api/action',data);$('#site-dialog').close();$('#site-form').reset();notify(result.message);await refresh();showSiteCommands(data);}
+  catch(err){$('#site-form-error').textContent=err.message;}
+  finally{busy=false;$('#site-submit').disabled=false;}
+};

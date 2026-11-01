@@ -1,3 +1,31 @@
+# Cập nhật: workspace riêng và tạo tên dự án qua giao diện
+
+Menu mới tách Website & Domain, Cơ sở dữ liệu, Tập tin, MQTT & Thiết bị, Giám sát, Sao lưu.
+Không còn gom PHP/SQL/File Manager thành một trang. SQL/file vẫn mở ứng dụng hiện có với
+đăng nhập riêng; không giả lập trình quản lý file/database mới hoặc auto-login.
+
+**Website → Tạo website mới** mở form tên nội bộ, domain dự kiến, cấu hình tài nguyên và cổng
+loopback. Submit qua session/CSRF rồi agent gọi CLI create-site.py bằng argv cố định, không shell.
+Generator hiện có sở hữu validation/name/domain/port/trùng tên; không gửi raw stderr hoặc
+mật khẩu qua API. Tạo file .env 0600, Compose, template PHP và metadata thật tại sites/<ten>.
+Không ghi đè site cũ, không khởi động container, không tạo DNS, không mở firewall.
+Danh sách đọc metadata thật nhưng **không xác minh deployment hoặc DNS**. Nút Xem lệnh triển
+khai chỉ hiển thị lệnh SSH; chưa thực thi lệnh đó. Domain là domain dự kiến, không được tự coi đã
+xác minh sở hữu. Không bấm lặp lại khi tác vụ chưa phản hồi; kiểm tra inventory nếu mất kết nối.
+
+Tối đa 100 site từ API, agent tuần tự hóa với service actions/backup trong cùng tiến trình.
+Không chạy CLI tạo site hoặc deploy thủ công đồng thời; chưa có khóa liên tiến trình giữa CLI và
+agent. Template site kế thừa code/config ở stack hiện có; đối chiếu PHP/Nginx trước khởi động.
+Nếu generator timeout, có thể còn .create-* tạm; kiểm tra qua SSH, không xóa site thành công.
+Tab MQTT có nút chạy/dừng/restart broker thật nhưng chưa tạo user/ACL hoặc kiểm tra pub/sub.
+Tạo database/user SQL có tên tùy chọn qua UI chưa được tích hợp. Nếu yêu cầu “tên mới” là
+đổi tên database thay vì tạo dự án, cần thiết kế migration/quyền dữ liệu riêng.
+
+Các ghi chú phiên bản cũ bên dưới về “chưa có form tạo site” đã được thay thế bởi chức năng
+tạo cấu hình nói trên, không có nghĩa toàn bộ provisioning/domain management đã hoàn tất.
+
+---
+
 # Cập nhật: giám sát MayChu247 nội bộ, không dùng Kuma mặc định
 
 Bản mới dùng `dashboard/monitor.py` (Python stdlib) với mục **Giám sát nội bộ**. Không cần

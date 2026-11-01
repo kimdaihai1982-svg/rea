@@ -49,6 +49,53 @@ def snapshots():
     return results
 
 
+def site_inventory():
+    base = ROOT / 'sites'
+    if base.is_symlink():
+        return {'items': [], 'error': 'Thư mục sites không hợp lệ; kiểm tra qua SSH.'}
+    items = []
+    try:
+        for folder in sorted(base.glob('*')):
+            if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', folder.name):
+                continue
+            if folder.is_symlink() or not folder.is_dir():
+                raise ValueError()
+            metadata = folder / 'site.json'
+            if metadata.is_symlink():
+                raise ValueError()
+            value = json.loads(metadata.read_text())
+            items.append({'name': folder.name, 'domain': value['domain'],
+                          'package': value['package'], 'port': value['port'],
+                          'deployment': 'Chỉ xác nhận có cấu hình; chưa kiểm tra container/DNS'})
+            if len(items) >= 100:
+                return {'items': items, 'error': 'Chỉ hiển thị tối đa 100 site. Kiểm tra inventory qua SSH.'}
+        return {'items': items, 'error': None}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'items': items, 'error': 'Inventory có file không đọc được; danh sách có thể chưa đầy đủ.'}
+
+
+def create_site(req):
+    # Domain/package/port ownership belongs to create-site.py; do not generate shell/YAML here.
+    values = {}
+    for key, limit in [('name', 32), ('domain', 253), ('package', 32)]:
+        value = req.get(key)
+        if not isinstance(value, str) or not 0 < len(value) <= limit or value.startswith('-'):
+            raise ValueError('Tên, domain hoặc cấu hình tài nguyên không hợp lệ')
+        values[key] = value
+    port = req.get('port')
+    if type(port) is not int:
+        raise ValueError('Cổng phải là số nguyên trong khoảng 20000–29999')
+    if len(site_inventory()['items']) >= 100:
+        raise ValueError('Đã đạt giới hạn 100 cấu hình site')
+    result = subprocess.run(['python3', str(ROOT / 'scripts/create-site.py'),
+                             '--domain', values['domain'], '--package', values['package'],
+                             '--port', str(port), '--write', '--', values['name']],
+                            cwd=ROOT, capture_output=True, text=True, timeout=20)
+    if result.returncode:
+        raise ValueError('Không tạo được. Kiểm tra tên (a-z, số, dấu -), domain, cấu hình, cổng và các giá trị trùng. Không ghi đè site cũ.')
+    return {'message': 'Đã tạo cấu hình và mật khẩu riêng trên server. Chưa khởi động Docker, tạo DNS hoặc gắn domain công khai.'}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -68,7 +115,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     rows = [json.loads(line) for line in out.splitlines() if line.strip()]
                 # Return only selected non-secret state, never ambient environment.
                 data = {'services': [{k: row.get(k, '') for k in ['Service', 'State', 'Health', 'Status']}
-                                     for row in rows], 'snapshots': snapshots(), 'job': dict(JOB)}
+                                     for row in rows], 'snapshots': snapshots(), 'job': dict(JOB), 'site_inventory': site_inventory()}
             elif action in ('start', 'stop', 'restart'):
                 svc = req.get('service')
                 if svc not in SERVICES:
@@ -79,6 +126,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     compose(action, svc, timeout=90)
                     print(json.dumps({'event': action, 'service': svc, 'time': time.time()}), flush=True)
                     data = {'message': f'Đã gửi lệnh {action} cho {svc}; kiểm tra trạng thái.'}
+                finally:
+                    LOCK.release()
+            elif action == 'create-site':
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang có tác vụ quản lý; thử lại sau')
+                try:
+                    data = create_site(req)
+                    print(json.dumps({'event': 'create-site', 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
             elif action == 'backup':

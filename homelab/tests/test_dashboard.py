@@ -79,6 +79,16 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.req('POST', '/api/action', {'action': 'restart', 'service': 'web'}, cookie=cookie, csrf=csrf)[0], 200)
             broker.assert_called_once_with({'action': 'restart', 'service': 'web'})
 
+    def test_create_site_requires_csrf_and_forwards_only_known_fields(self):
+        cookie, csrf = self.login()
+        payload = {'action': 'create-site', 'name': 'shop', 'domain': 'shop.example.com',
+                   'package': 'starter', 'port': 20001, 'command': 'id', 'path': '/etc'}
+        with patch.object(server, 'agent', return_value=(200, {'message': 'created'})) as broker:
+            self.assertEqual(self.req('POST', '/api/action', payload, cookie=cookie)[0], 403)
+            broker.assert_not_called()
+            self.assertEqual(self.req('POST', '/api/action', payload, cookie=cookie, csrf=csrf)[0], 200)
+            broker.assert_called_once_with({k: payload[k] for k in ('action','name','domain','package','port')})
+
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()
         self.assertEqual(self.req('POST', '/api/logout', {}, cookie=cookie, csrf=csrf)[0], 200)

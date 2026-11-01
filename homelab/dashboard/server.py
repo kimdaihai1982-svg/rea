@@ -184,10 +184,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
-            status, result = agent({'action': data.get('action'), 'service': data.get('service')})
+            payload = {'action': data.get('action'), 'service': data.get('service')}
+            if data.get('action') == 'create-site':
+                payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'package', 'port')}
+            status, result = agent(payload)
             return self.reply(status, result)
         except Exception:
             return self.reply(503, {'error': 'Agent không phản hồi. Kiểm tra trạng thái qua SSH trước khi thử lại.'})
