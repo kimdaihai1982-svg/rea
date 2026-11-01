@@ -194,3 +194,26 @@ trong các ứng dụng vẫn do từng dự án cung cấp; chọn ngôn ngữ 
 
 Cập nhật qua cùng mode `--update-dashboard`, giữ nguyên mật khẩu/tài khoản hiện có.
 Chỉ cập nhật source dashboard, không thay database, thiết lập Kuma hoặc theme app bên thứ ba.
+
+## Sửa updater: TIME_WAIT và kiểm tra sau khởi động
+
+Đã tái hiện lỗi updater cũ: dừng dashboard vừa phục vụ HTTP xong rồi dùng socket bind không
+SO_REUSEADDR có thể nhận EADDRINUSE vì TIME_WAIT dù không còn process lắng nghe. Với set -e,
+updater thoát sau khi dịch vụ đã dừng, gây connection refused qua SSH forwarding.
+
+Bản sửa dùng SO_REUSEADDR giống HTTPServer, vẫn từ chối listener đang chạy thật. Trước khi
+dừng dịch vụ, import server/agent/monitor và đọc auth/assets bằng user maychu247-ui. Sau khi
+khởi động chờ HTTP GET / trả 200 và agent Unix ping ready=true. Nếu lỗi sau bước bắt đầu thay
+live release, trap phục hồi code/unit trước đó và cố bật lại dịch vụ vốn active. Đây không phải
+rollback database, không tự sửa bản cũ vốn đã hỏng và không bảo vệ mất điện giữa cập nhật.
+Nguồn trong /opt có thể đã được updater thay trước đó; rollback chủ yếu phục hồi live release
+ở /usr/local/lib và unit systemd. Backup compose/scripts ở backups/pre-dashboard-* vẫn giữ lại.
+
+Updater cũng nhận diện socket cũ connection-refused khi agent không active để cho phép sửa;
+nếu agent vẫn active hoặc job backup/status không rõ thì từ chối. Người quản trị vẫn phải bảo
+đảm không có backup/deploy thủ công chạy ngầm. Mật khẩu, .env và volume không bị reset.
+
+Regression test chạy chính đoạn bind của installer trên socket HTTP thực sau shutdown và
+listener thực còn chạy. Các kiểm tra vị trí trap/readiness là static assertions; chưa mô phỏng
+đầy đủ rollback systemd trên Ubuntu. Log server thực vẫn cần để kết luận nguyên nhân sự cố
+của từng máy, không suy ra chỉ từ ảnh trình duyệt hoặc thông báo SSH channel refused.

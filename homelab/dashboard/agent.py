@@ -107,7 +107,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('Yêu cầu không hợp lệ')
             req = json.loads(self.rfile.read(length))
             action = req.get('action')
-            if action == 'status':
+            if action == 'ping':
+                data = {'ready': True}
+            elif action == 'status':
                 out = compose('ps', '--all', '--format', 'json')
                 if out.strip().startswith('['):
                     rows = json.loads(out)

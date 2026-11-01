@@ -75,16 +75,21 @@ if [[ $MODE == --update-dashboard ]]; then
   command -v flock >/dev/null
   # Reject updates while the dashboard knows a backup is active.
   python3 - <<'CHECK_JOB'
-import http.client,json,socket,os
+import http.client,json,socket,os,subprocess
 path='/run/maychu247/agent.sock'
 if os.path.exists(path):
-    c=http.client.HTTPConnection('localhost',timeout=50)
-    c.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-    c.sock.settimeout(50);c.sock.connect(path)
-    c.request('POST','/',json.dumps({'action':'status'}),{'Content-Type':'application/json'})
-    r=c.getresponse();d=json.loads(r.read());c.close()
-    if r.status!=200 or d.get('job',{}).get('state')=='running':
-        raise SystemExit('Agent/backup chưa sẵn sàng. Không cập nhật khi đang chạy tác vụ.')
+    try:
+        c=http.client.HTTPConnection('localhost',timeout=50)
+        c.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+        c.sock.settimeout(50);c.sock.connect(path)
+        c.request('POST','/',json.dumps({'action':'status'}),{'Content-Type':'application/json'})
+        r=c.getresponse();d=json.loads(r.read());c.close()
+        if r.status!=200 or d.get('job',{}).get('state')=='running':
+            raise SystemExit('Agent/backup chưa sẵn sàng. Không cập nhật khi đang chạy tác vụ.')
+    except (ConnectionRefusedError,FileNotFoundError):
+        active=subprocess.run(['systemctl','is-active','--quiet','maychu247-agent.service']).returncode==0
+        if active:raise SystemExit('Agent active nhưng socket lỗi. Cần kiểm tra qua SSH trước.')
+        print('Socket agent cũ không hoạt động. Chỉ tiếp tục sửa khi không có backup/deploy chạy ngầm.')
 CHECK_JOB
   echo 'Nâng dashboard: không xóa volume/.env, không thay mã PHP, không đổi domain hoặc firewall.'
   echo 'Sẽ dừng portal cũ và cài UI + agent systemd. Hãy bảo đảm không có backup/deploy đang chạy.'
