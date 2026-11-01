@@ -1,3 +1,32 @@
+# Mới: tạo thư mục web và database bằng nút bấm
+
+- **Tập tin → Tạo thư mục web**: nhập `web-ca-nhan`, xác nhận. Ghi thật
+  `projects/web-ca-nhan/public/index.html`; danh sách thư mục đọc trực tiếp trên server.
+  File Browser sẽ thấy `/web-ca-nhan/public/`. Chưa tự tạo virtual host hoặc domain. Không tự
+  cấu hình Nginx hay phục vụ tất cả thư mục qua URL để tránh public nhầm mã riêng.
+- **Cơ sở dữ liệu → Tạo database SQL**: nhập `quan_ly_nha`, xác nhận. Tạo MariaDB schema thật
+  UTF8MB4, cấp quyền schema cho tài khoản **appuser@% hiện có**. Dùng DB_PASSWORD đang có,
+  không sinh user/password mới. Trong Adminer chọn server db, user appuser và database vừa tạo.
+  Đây là stack cá nhân với tài khoản dùng chung, KHÔNG cách ly khách hàng hoặc quyền giữa app.
+- Cả hai thao tác có session/CSRF, xác nhận, allowlist tên và lock cùng agent/backup. Không ghi
+  đè tên đã tồn tại. Tên thư mục dùng a-z, số, dấu -, tên SQL dùng a-z, số, dấu _, tối đa 32 ký tự.
+- Không có thao tác xóa tự động. Tạo schema và cấp quyền là hai DDL không transaction: nếu grant
+  lỗi có thể còn database mới. UI báo chưa xác nhận và yêu cầu kiểm tra danh sách/quyền trước
+  khi thử lại, không DROP để “rollback”. Chưa liên kết database mới vào code PHP tự động.
+- API GET /api/resources cần đăng nhập; lỗi DB không làm mất danh sách folder. Không gửi secret
+  hoặc stderr SQL qua API. UI chỉ gửi tên, không gửi SQL/path tự do; root agent chạy SQL cố định
+  với identifier đã kiểm tra. Quyền root bên trong container vẫn cần quản trị đúng.
+- Chỉ tạo folder dưới projects bằng no-follow directory-relative operations; từ chối symlink,
+  path traversal và trùng tên. Mode 0755/0644 cho public code dù agent có umask 0007; secrets
+  của site vẫn 0600/0700. Đã sửa template site để PHP container đọc được cây projects dưới umask đó.
+
+Bản cập nhật giữ public.env, token Tunnel, dữ liệu và mật khẩu; UI restart sẽ đăng xuất phiên.
+Kiểm thử filesystem/HTTP chạy thực trên môi trường phát triển, SQL dùng mock: chưa chạy thử
+DDL/grant trên MariaDB hoặc systemd server của bạn. Nghiệm thu một folder và DB tên mới sau update.
+Các ghi chú cũ bên dưới nói chưa có form SQL/folder được thay thế bởi phạm vi cụ thể ở trên.
+
+---
+
 # Mới: domain HTTPS tùy chọn cho dashboard
 
 Xem PUBLIC-DOMAIN.md. Cần update code/systemd rồi chạy configure-public.sh với hostname cụ thể,

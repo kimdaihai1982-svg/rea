@@ -43,7 +43,7 @@ async function refresh(){
 $('#login-form').onsubmit=async e=>{e.preventDefault();try{await request('/api/login',{password:$('#password').value});$('#password').value='';await showWorkspace();}catch(err){notify(err.message);}};
 $('#logout').onclick=async()=>{try{await request('/api/logout',{});}catch(e){notify(e.message);}showLogin();};
 $('#refresh').onclick=refresh;$('#backup').onclick=()=>action({action:'backup'});
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.tab').forEach(x=>x.hidden=x.id!==b.dataset.tab);$('#title').textContent=b.textContent.replace(/^[^\p{L}\p{N}]+/u,'').trim();document.querySelectorAll('[data-tab]').forEach(x=>{if(x===b)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});});
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.tab').forEach(x=>x.hidden=x.id!==b.dataset.tab);if(['sql','files'].includes(b.dataset.tab))refreshResources();$('#title').textContent=b.textContent.replace(/^[^\p{L}\p{N}]+/u,'').trim();document.querySelectorAll('[data-tab]').forEach(x=>{if(x===b)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});});
 showWorkspace().catch(()=>showLogin());
 
 // Guide navigation changes only the local page; it never executes server commands.
@@ -109,3 +109,35 @@ if(location.protocol==='https:' && !['localhost','127.0.0.1'].includes(location.
     a.onclick=e=>{e.preventDefault();notify('Dashboard qua domain chỉ quản lý API. SQL/File Browser/website vẫn cần SSH forwarding riêng.');};
   });
 }
+
+let resourcesBusy=false;
+async function refreshResources(){
+  if(resourcesBusy)return;resourcesBusy=true;
+  try{
+    const data=await request('/api/resources');
+    $('#folder-error').textContent=data.folders.error||'Dữ liệu thật trong projects/ (tối đa 100 thư mục, không gồm sites/).';
+    $('#database-error').textContent=data.databases.error||'Database ứng dụng trong MariaDB stack chính (tối đa 100).';
+    $('#folder-list').replaceChildren();$('#database-list').replaceChildren();
+    data.folders.items.forEach(f=>{const r=document.createElement('tr');textCell(r,f.path);textCell(r,f.public?'Có thư mục public':'Chưa có');$('#folder-list').append(r);});
+    data.databases.items.forEach(name=>{const r=document.createElement('tr');textCell(r,name);textCell(r,'Stack chính');$('#database-list').append(r);});
+    if(!data.folders.items.length&&!data.folders.error){const r=document.createElement('tr');textCell(r,'Chưa có thư mục hợp lệ');$('#folder-list').append(r);}
+    if(!data.databases.items.length&&!data.databases.error){const r=document.createElement('tr');textCell(r,'Chưa có database ứng dụng');$('#database-list').append(r);}
+  }catch(e){$('#folder-error').textContent='Chưa đọc lại được; dữ liệu có thể đã cũ. '+e.message;$('#database-error').textContent='Chưa đọc lại được; dữ liệu có thể đã cũ. '+e.message;}
+  finally{resourcesBusy=false;}
+}
+document.querySelectorAll('.reload-resources').forEach(b=>b.onclick=refreshResources);
+function bindCreationForm(id,actionName,label){
+  const form=document.getElementById(id);
+  form.onsubmit=async e=>{
+    e.preventDefault();if(busy)return;
+    const input=form.querySelector('input'),button=form.querySelector('button[type="submit"]'),result=form.querySelector('.form-result');
+    const name=input.value.trim();
+    if(!confirm('Tạo '+label+' thật: '+name+'? Không ghi đè tên đã tồn tại.'))return;
+    busy=true;button.disabled=true;result.textContent='Đang tạo…';
+    try{const data=await request('/api/action',{action:actionName,name});result.textContent=data.message;input.value='';notify(data.message);}
+    catch(e){result.textContent=e.message;}
+    finally{busy=false;button.disabled=false;await refreshResources();}
+  };
+}
+bindCreationForm('folder-form','create-folder','thư mục');
+bindCreationForm('database-form','create-database','database');

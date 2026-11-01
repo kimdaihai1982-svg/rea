@@ -96,6 +96,99 @@ def create_site(req):
     return {'message': 'Đã tạo cấu hình và mật khẩu riêng trên server. Chưa khởi động Docker, tạo DNS hoặc gắn domain công khai.'}
 
 
+def database_sql(statement):
+    # Fixed in-container shell only expands the existing root secret; no user shell text.
+    command = ['docker', 'compose', '--project-directory', str(ROOT), 'exec', '-T', 'db',
+               'sh', '-c', 'exec mariadb --connect-timeout=3 --batch --skip-column-names -uroot -p"$MARIADB_ROOT_PASSWORD"']
+    result = subprocess.run(command, input=statement, cwd=ROOT, capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise RuntimeError('Database chưa sẵn sàng hoặc câu lệnh thất bại. Không tự chạy lại lệnh tạo; kiểm tra danh sách trước.')
+    return result.stdout
+
+
+def database_inventory():
+    out = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME LIMIT 101;\n")
+    names = out.splitlines()
+    return {'items': names[:100], 'error': 'Chỉ hiển thị 100 database' if len(names) > 100 else None}
+
+
+def project_folders():
+    base = ROOT / 'projects'
+    if base.is_symlink():
+        raise ValueError('projects không được là symlink')
+    items = []
+    for folder in sorted(base.iterdir()):
+        if folder.is_symlink():
+            continue
+        if folder.is_dir() and re.fullmatch(r'[a-z][a-z0-9-]{0,31}', folder.name):
+            items.append({'name': folder.name, 'path': 'projects/' + folder.name,
+                          'public': (folder / 'public').is_dir() and not (folder / 'public').is_symlink()})
+            if len(items) >= 100:
+                break
+    return items
+
+
+def resources():
+    result = {'folders': {'items': [], 'error': None}, 'databases': {'items': [], 'error': None}}
+    try:
+        result['folders']['items'] = project_folders()
+    except (OSError, ValueError):
+        result['folders']['error'] = 'Chưa đọc được thư mục projects; không coi danh sách trống là không có dữ liệu.'
+    try:
+        result['databases'] = database_inventory()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        result['databases']['error'] = 'Chưa đọc được MariaDB; kiểm tra dịch vụ db. Không suy ra database đã mất.'
+    return result
+
+
+def create_folder(name):
+    if not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', name):
+        raise ValueError('Tên thư mục: chữ thường a-z, số, dấu -, bắt đầu bằng chữ, tối đa 32 ký tự')
+    # Directory-relative operations with no-follow prevent escaping via project symlinks.
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    with_fd = os.open(ROOT / 'projects', flags)
+    folder_fd = public_fd = None
+    try:
+        try:
+            os.mkdir(name, mode=0o755, dir_fd=with_fd)
+        except FileExistsError:
+            raise ValueError('Tên thư mục đã tồn tại; không ghi đè')
+        folder_fd = os.open(name, flags, dir_fd=with_fd)
+        os.fchmod(folder_fd, 0o755)
+        os.mkdir('public', mode=0o755, dir_fd=folder_fd)
+        public_fd = os.open('public', flags, dir_fd=folder_fd)
+        os.fchmod(public_fd, 0o755)
+        fd = os.open('index.html', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o644, dir_fd=public_fd)
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, 'w') as file:
+            file.write('<!doctype html><meta charset="utf-8"><title>Project ready</title><h1>' + name + '</h1><p>Thu muc moi da duoc tao.</p>')
+    finally:
+        if public_fd is not None: os.close(public_fd)
+        if folder_fd is not None: os.close(folder_fd)
+        os.close(with_fd)
+    return {'message': 'Đã tạo projects/' + name + '/public. Thấy trong File Browser ở /' + name + '/public. Chưa tạo virtual host/domain.'}
+
+
+def create_database(name):
+    if (not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', name)
+            or name in ('mysql', 'sys', 'performance_schema', 'information_schema')):
+        raise ValueError('Tên database: chữ thường a-z, số, dấu _, bắt đầu bằng chữ, tối đa 32 ký tự; không dùng tên hệ thống')
+    # appuser@% must already exist; never implicitly create a user without a password.
+    exists = database_sql("SELECT COUNT(*) FROM mysql.user WHERE User='appuser' AND Host='%';\n").strip()
+    if exists != '1':
+        raise ValueError('Không tìm thấy đúng tài khoản appuser@%; chưa tạo database')
+    current = database_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='" + name + "';\n").strip()
+    if current:
+        raise ValueError('Database đã tồn tại; không ghi đè')
+    try:
+        database_sql('CREATE DATABASE `' + name + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n')
+        database_sql('GRANT ALL PRIVILEGES ON `' + name + "`.* TO 'appuser'@'%';\n")
+    except (RuntimeError, subprocess.TimeoutExpired):
+        raise RuntimeError('Tạo/cấp quyền chưa xác nhận hoàn tất, có thể database đã được tạo. Kiểm tra danh sách và quyền qua SSH trước khi thử lại; không xóa dữ liệu.')
+    return {'message': 'Đã tạo database ' + name + ' và cấp quyền cho appuser. Dùng cùng DB_PASSWORD của stack chính; chưa liên kết với website.'}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -109,6 +202,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             action = req.get('action')
             if action == 'ping':
                 data = {'ready': True}
+            elif action == 'resources':
+                data = resources()
             elif action == 'status':
                 out = compose('ps', '--all', '--format', 'json')
                 if out.strip().startswith('['):
@@ -128,6 +223,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     compose(action, svc, timeout=90)
                     print(json.dumps({'event': action, 'service': svc, 'time': time.time()}), flush=True)
                     data = {'message': f'Đã gửi lệnh {action} cho {svc}; kiểm tra trạng thái.'}
+                finally:
+                    LOCK.release()
+            elif action in ('create-folder', 'create-database'):
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang có tác vụ quản lý; thử lại sau')
+                try:
+                    data = create_folder(req.get('name')) if action == 'create-folder' else create_database(req.get('name'))
+                    print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
             elif action == 'create-site':

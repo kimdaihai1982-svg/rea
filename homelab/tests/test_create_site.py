@@ -72,6 +72,14 @@ class CreateSiteTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / 'sites/other').exists())
 
+    def test_web_template_readable_with_agent_umask(self):
+        result = subprocess.run([sys.executable,str(self.root/'scripts/create-site.py'),
+                                 'shop','--domain','shop.example.com','--port','28991','--write'],
+                                capture_output=True,text=True,umask=0o007)
+        self.assertEqual(result.returncode,0,result.stderr)
+        for relative in ('projects','projects/demo','projects/demo/public'):
+            self.assertEqual((self.root/'sites/shop'/relative).stat().st_mode & 0o777,0o755)
+
     def test_symlink_sites_rejected(self):
         (self.root / 'outside').mkdir()
         (self.root / 'sites').symlink_to(self.root / 'outside', target_is_directory=True)

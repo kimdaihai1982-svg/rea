@@ -139,6 +139,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(401, {'error': 'Cần đăng nhập'})
         if path == '/api/session':
             return self.reply(200, {'csrf': session[1]['csrf'], 'expires': session[1]['expires']})
+        if path == '/api/resources':
+            try:
+                code, data = agent({'action': 'resources'})
+                return self.reply(code, data)
+            except Exception:
+                return self.reply(503, {'error': 'Không đọc được tài nguyên; kiểm tra agent.'})
         if path == '/api/status':
             try:
                 status, data = agent({'action': 'status'})
@@ -202,12 +208,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
             if data.get('action') == 'create-site':
                 payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'package', 'port')}
+            if data.get('action') in ('create-folder', 'create-database'):
+                payload = {key: data.get(key) for key in ('action', 'name')}
             status, result = agent(payload)
             return self.reply(status, result)
         except Exception:

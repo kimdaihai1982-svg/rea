@@ -108,6 +108,20 @@ class DashboardTests(unittest.TestCase):
         for origin in ('http://panel.example.com','https://*.example.com','https://panel.example.com/path','https://panel.example.com:443','https://user@panel.example.com'):
             with self.assertRaises(ValueError):server.configured_origin(origin)
 
+    def test_folder_and_database_actions_require_csrf_and_strip_extra_fields(self):
+        cookie, csrf = self.login()
+        for action in ('create-folder', 'create-database'):
+            payload = {'action':action,'name':'my_app','path':'/etc','sql':'DROP DATABASE appdb'}
+            with patch.object(server,'agent',return_value=(200,{'message':'ok'})) as broker:
+                self.assertEqual(self.req('POST','/api/action',payload,cookie=cookie)[0],403)
+                broker.assert_not_called()
+                self.assertEqual(self.req('POST','/api/action',payload,cookie=cookie,csrf=csrf)[0],200)
+                broker.assert_called_once_with({'action':action,'name':'my_app'})
+        self.assertEqual(self.req('GET','/api/resources')[0],401)
+        with patch.object(server,'agent',return_value=(200,{'folders':{},'databases':{}})) as broker:
+            self.assertEqual(self.req('GET','/api/resources',cookie=cookie)[0],200)
+            broker.assert_called_once_with({'action':'resources'})
+
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()
         self.assertEqual(self.req('POST', '/api/logout', {}, cookie=cookie, csrf=csrf)[0], 200)

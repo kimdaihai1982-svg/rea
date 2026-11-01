@@ -41,6 +41,10 @@ class GuideTests(unittest.TestCase):
         for tab in ('sites', 'sql', 'files', 'mqtt'):
             self.assertIn(tab, tree.tabs)
         self.assertIn('site-form', tree.ids)
+        self.assertIn('folder-form', tree.ids)
+        self.assertIn('database-form', tree.ids)
+        self.assertIn('folder-list', tree.ids)
+        self.assertIn('database-list', tree.ids)
         self.assertTrue(tree.guide_targets)
         for target in tree.guide_targets:
             self.assertIn(target, tree.ids)

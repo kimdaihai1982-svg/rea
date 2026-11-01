@@ -65,7 +65,11 @@ def main():
         shutil.copytree(ROOT / 'php', work / 'php')
         (work / 'config').mkdir()
         shutil.copy2(ROOT / 'config/nginx.conf', work / 'config/nginx.conf')
-        (work / 'projects/demo/public').mkdir(parents=True)
+        # Agent runs with restrictive umask; the PHP container must still read public code.
+        for relative in ('projects', 'projects/demo', 'projects/demo/public'):
+            folder = work / relative
+            folder.mkdir(mode=0o755)
+            folder.chmod(0o755)
         shutil.copy2(ROOT / 'projects/demo/public/index.php', work / 'projects/demo/public/index.php')
         env = 'DB_PASSWORD=' + secrets.token_hex(24) + '\nDB_ROOT_PASSWORD=' + secrets.token_hex(24) + '\nTUNNEL_TOKEN=\n'
         (work / '.env').write_text(env)
