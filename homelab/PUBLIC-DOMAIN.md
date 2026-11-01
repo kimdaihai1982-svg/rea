@@ -73,3 +73,25 @@ sudo docker compose -p maychu247-dashboard-tunnel -f /etc/maychu247-ui/tunnel.ya
 Để quay về SSH-only: dừng connector mới trước, giữ bản sao cấu hình root-only, di chuyển
 /etc/maychu247-ui/public.env khỏi đường dẫn đó rồi restart dashboard. SSH loopback tiếp tục
 được hỗ trợ kể cả khi public origin được bật. Không xóa .env, DB, volume hoặc connector cũ.
+
+## Chốt domain gốc maychu247.uk (không dùng subdomain tự đề xuất)
+
+Với bộ đã cài connector riêng và code hỗ trợ public origin, script standalone `scripts/repair-domain.sh`
+chuẩn hóa origin về **https://maychu247.uk**, giữ token/password/data, sao lưu public.env, restart
+UI và xác minh HTTP thật bằng Host maychu247.uk. Connector dùng network_mode host đã có được
+khởi chạy qua Compose riêng. Không tự sửa Cloudflare vì không có API credentials; chỉ xác nhận
+backend, không tuyên bố Internet/Access đã khỏe. Route/Access phải cùng hostname maychu247.uk.
+
+```bash
+sudo bash /opt/maychu247-v2/scripts/repair-domain.sh
+```
+
+Hoặc tải riêng script repair-domain.sh về ~/MayChu247-Fix.sh rồi chạy sudo bash. Script cần cấu
+hình public/tunnel đã tồn tại; từ chối cài đè khi thiếu. Chạy trong giờ không backup/deploy, có SSH
+cứu hộ. Nếu backend không lên, phục hồi public.env cũ nếu có và in log; không tự kill process,
+remove container hoặc xóa dữ liệu. Agent/connector vẫn phải được nghiệm thu riêng.
+
+Lỗi localhost trên Windows có thể do tunnel PC đã đóng. Dùng domain đã cấu hình đúng sẽ tránh
+phụ thuộc tunnel PC cho dashboard, nhưng không loại trừ sự cố server, mạng hay Cloudflare.
+Không công khai toàn bộ domain gốc nếu nó còn phục vụ website khác; đổi route là chuyển mục
+đích domain từ website sang dashboard quản trị và bắt buộc có Access phù hợp.
