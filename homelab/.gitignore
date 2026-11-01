@@ -1,0 +1,7 @@
+.env
+secrets/
+backups/
+projects/*
+!projects/demo/
+!projects/demo/**
+sites/

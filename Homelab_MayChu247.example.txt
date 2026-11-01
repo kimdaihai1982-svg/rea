@@ -1,0 +1,88 @@
+================================================================================
+                HỆ THỐNG QUẢN TRỊ HOME LAB - MAYCHU247.UK
+        (BẢN MẪU ĐÃ CHE MẬT KHẨU - AN TOÀN ĐỂ LƯU LÊN GIT/GitHub)
+================================================================================
+
+1. THÔNG TIN MÁY CHỦ (SERVER INFOMATION)
+--------------------------------------------------------------------------------
+- IP Máy chủ Ubuntu (VM): 192.168.1.11
+- User đăng nhập SSH  : kimdaihai
+- Mật khẩu SSH        : ******** (xem file Homelab_MayChu247.txt - KHÔNG commit)
+- Thư mục gốc Docker  : /opt/stack
+
+2. ĐƯỜNG DẪN TRUY CẬP (QUA CLOUDFLARE TUNNEL)
+--------------------------------------------------------------------------------
+Lưu ý: Luôn TẮT VPN của trình duyệt (Opera/Chrome) khi truy cập.
+
+* Trang Web PHP (Chính)   : https://maychu247.uk (hoặc https://www.maychu247.uk)
+* Trang Quản lý Database  : https://adminer.maychu247.uk
+* Trang Uptime Kuma       : https://kuma.maychu247.uk
+* Trang Nginx Proxy Mgr   : https://npm.maychu247.uk
+* MQTT WebSockets (App)   : https://mqtt.maychu247.uk
+
+3. TÀI KHOẢN & MẬT KHẨU CÁC DỊCH VỤ
+--------------------------------------------------------------------------------
+[A] DATABASE (MariaDB) - Dùng để đăng nhập Adminer hoặc Code PHP
+- Server   : db
+- Database : appdb
+- User     : appuser
+- Password : ********
+- Root Pass: ********
+
+[B] MQTT BROKER (Mosquitto Pro)
+- Host/IP  : mqtt (dùng trong Docker) hoặc 192.168.1.11 (từ máy Windows)
+- Port TCP : 1883 (cho thiết bị IoT)
+- Port WS  : 9001 (cho Web/App)
+- User     : mqttuser
+- Password : ********
+
+[C] CÁC DỊCH VỤ KHÁC
+- Nginx Proxy Manager: admin@example.com / ******** (đổi pass ngay sau khi cài)
+- Uptime Kuma        : Tự tạo tài khoản admin ở lần đầu vào.
+- Adminer/Web        : Truy cập trực tiếp không cần pass (bảo vệ bởi Cloudflare).
+
+4. CẤU HÌNH CLOUDFLARE (PUBLIC HOSTNAME)
+--------------------------------------------------------------------------------
+Truy cập: one.dash.cloudflare.com -> Networks -> Tunnels -> Chọn Tunnel -> Public Hostname
+(Cấu hình đúng các dòng dưới đây để tránh lỗi 502 Bad Gateway)
+
+- maychu247.uk          -> Type: HTTP -> URL: web:8080
+- adminer.maychu247.uk  -> Type: HTTP -> URL: adminer:8080
+- kuma.maychu247.uk     -> Type: HTTP -> URL: kuma:3001
+- npm.maychu247.uk      -> Type: HTTP -> URL: npm:81
+- mqtt.maychu247.uk     -> Type: HTTP -> URL: mqtt:9001
+
+5. CÁC LỆNH QUẢN LÝ DOCKER (Gõ trên màn hình đen SSH)
+--------------------------------------------------------------------------------
+- Vào thư mục dự án      : cd /opt/stack
+- Xem trạng thái các dịch vụ: sudo docker compose ps
+- Khởi động lại tất cả   : sudo docker compose restart
+- Xem log của Tunnel     : sudo docker logs cloudflared --tail 20
+- Xem log Web           : sudo docker logs web --tail 20
+
+6. TEST MQTT VÀ LƯU VÀO DATABASE (PHP WORKER)
+--------------------------------------------------------------------------------
+Để PHP hứng dữ liệu MQTT lưu vào Database, file worker cần chạy ngầm 24/7.
+Nếu máy chủ khởi động lại, gõ lệnh sau để bật lại Worker:
+
+sudo docker exec -d web php /var/www/html/worker.php > /dev/null 2>&1 &
+
+Để test gửi tin nhắn từ Web (không cần cài phần mềm):
+1. Vào trình duyệt mở: https://maychu247.uk/test_mqtt.php
+2. Đợi 2 giây, mở https://adminer.maychu247.uk -> bảng sensor_logs -> Xem dữ liệu.
+
+Định dạng dữ liệu MQTT (JSON) cần gửi:
+Topic: home/sensor/data
+Payload: {"device_id": "ESP32_01", "temp": 30.5, "hum": 70}
+
+7. CÁC LƯU Ý QUAN TRỌNG ĐỂ HỆ THỐNG LUÔN ỔN ĐỊNH
+--------------------------------------------------------------------------------
+- Luôn tắt VPN của trình duyệt Opera/Chrome trước khi test tên miền.
+- Không mở cổng 1883 ra Internet bằng Cloudflare (phải dùng 9001 WebSockets).
+- File cấu hình môi trường (.env) nằm tại: /opt/stack/.env
+- Nếu Tunnel báo lỗi, kiểm tra Token trong file .env (phải bắt đầu bằng eyJh...)
+- Mã Token lấy tại: Cloudflare Zero Trust -> Tunnels -> Configure -> View Token.
+
+================================================================================
+              CHÚC MỪNG BẠN ĐÃ XÂY DỰNG THÀNH CÔNG HỆ THỐNG HOMELAB!
+================================================================================

@@ -77,3 +77,6 @@ Thumbs.db
 website/_site/
 # Temporary translation output prepared before replacing the complete site.
 website/.i18n-*/
+
+# Homelab notes containing secrets — NEVER commit (use the .example file instead)
+/Homelab_MayChu247.txt

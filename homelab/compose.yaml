@@ -1,0 +1,77 @@
+name: maychu247-v2
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: '3'}
+x-service: &service
+  restart: unless-stopped
+  logging: *logging
+services:
+  web:
+    <<: *service
+    build: ./php
+    volumes:
+      - ./projects:/var/www/projects:ro
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    environment:
+      DB_HOST: db
+      DB_DATABASE: appdb
+      DB_USERNAME: appuser
+      DB_PASSWORD: ${DB_PASSWORD:?Run setup first}
+    ports: ['${BIND_IP:-127.0.0.1}:18080:8080']
+    depends_on:
+      db: {condition: service_healthy}
+  db:
+    <<: *service
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: appdb
+      MARIADB_USER: appuser
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Run setup first}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Run setup first}
+    volumes: [db:/var/lib/mysql, './config/mariadb.cnf:/etc/mysql/conf.d/tuning.cnf:ro']
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  adminer:
+    <<: *service
+    image: adminer:4
+    environment: {ADMINER_DEFAULT_SERVER: db}
+    ports: ['${BIND_IP:-127.0.0.1}:18081:8080']
+  mqtt:
+    <<: *service
+    image: eclipse-mosquitto:2
+    ports: ['${BIND_IP:-127.0.0.1}:1884:1883', '${BIND_IP:-127.0.0.1}:19001:9001']
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./secrets/mqtt.passwd:/mosquitto/config/passwords:ro
+      - mqtt:/mosquitto/data
+  kuma:
+    <<: *service
+    image: louislam/uptime-kuma:1
+    ports: ['${BIND_IP:-127.0.0.1}:13001:3001']
+    volumes: [kuma:/app/data]
+  files:
+    <<: *service
+    image: filebrowser/filebrowser:v2
+    user: '0:0'
+    command: ['--address', '0.0.0.0', '--port', '80', '--database', '/database/filebrowser.db', '--root', '/srv']
+    ports: ['${BIND_IP:-127.0.0.1}:18082:80']
+    volumes: ['./projects:/srv', 'files:/database']
+  portal:
+    <<: *service
+    image: nginx:stable-alpine
+    ports: ['${BIND_IP:-127.0.0.1}:18000:80']
+    volumes: ['./portal:/usr/share/nginx/html:ro']
+  tunnel:
+    <<: *service
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment: {TUNNEL_TOKEN: '${TUNNEL_TOKEN:-}'}
+volumes:
+  db:
+  mqtt:
+  kuma:
+  files:
