@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import project_files
+import mqtt_client
 
 ROOT = Path('/opt/maychu247-v2')
 SOCKET = '/run/maychu247/agent.sock'
@@ -220,6 +221,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
+            elif action in ('mqtt-publish', 'mqtt-sample', 'mqtt-test'):
+                if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
+                    raise ValueError('Đang backup hoặc thao tác khác; thử lại sau')
+                try:
+                    if action == 'mqtt-test':
+                        data = mqtt_client.selftest(ROOT)
+                    elif action == 'mqtt-publish':
+                        data = mqtt_client.publish(ROOT, req.get('topic'), req.get('payload'))
+                    else:
+                        data = mqtt_client.sample(ROOT, req.get('topic'))
+                    print(json.dumps({'event': action, 'time': time.time()}), flush=True)
+                finally:
+                    LOCK.release()
             elif action == 'resources':
                 data = resources()
             elif action == 'status':
@@ -272,7 +286,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except FileExistsError:
             self.reply(400, {'error': 'Tên đã tồn tại; không ghi đè. Mở file để sửa nếu cần.'})
         except OSError:
-            self.reply(400, {'error': 'Không truy cập được đường dẫn; chỉ cho file/thư mục thật trong projects, không symlink.'})
+            self.reply(400, {'error': 'Không truy cập được file hoặc dịch vụ nội bộ. Nếu là MQTT: kiểm tra broker, mật khẩu và cổng; không tự gửi lại để tránh tin trùng.'})
         except (ValueError, RuntimeError) as e:
             self.reply(400, {'error': str(e)})
         except Exception:

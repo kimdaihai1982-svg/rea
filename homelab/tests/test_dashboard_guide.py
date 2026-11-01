@@ -60,11 +60,22 @@ class GuideTests(unittest.TestCase):
         self.assertNotIn('localhost:18082',guide)
         self.assertIn('Lưu thay đổi thật',guide)
 
+    def test_mqtt_guide_has_buttons_not_shell_commands(self):
+        page=(ROOT/'dashboard/index.html').read_text()
+        guide=page.split('<details id="guide-mqtt"',1)[1].split('</details>',1)[0]
+        self.assertNotIn('sudo ',guide)
+        self.assertNotIn('ssh -L',guide)
+        self.assertIn('Gửi tin thật',guide)
+        for forbidden in ('sudo ', 'ssh -L', 'docker compose', 'sed -n'):
+            self.assertNotIn(forbidden,page)
+        for id_ in ('mqtt-publish-form','mqtt-sample-form','mqtt-messages','mqtt-test'):
+            self.assertIn('id="'+id_+'"',page)
+
     def test_guide_uses_internal_container_names_for_monitors(self):
         page = (ROOT / 'dashboard/index.html').read_text()
         self.assertIn('http://web:8080/', page)
         self.assertIn('Hostname db · Port 3306', page)
         self.assertIn('Hostname mqtt · Port 1883', page)
         self.assertNotIn('http://localhost:3306', page)
-        self.assertIn('worker MQTT→SQL chưa kèm', page)
+        self.assertIn('worker MQTT→SQL', page)
         self.assertIn('Không gửi ảnh có mật khẩu/token', page)

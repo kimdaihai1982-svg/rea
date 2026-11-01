@@ -162,6 +162,16 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.req('POST','/api/action',{'action':'file-mkdir','path':'demo/public/images'},cookie=cookie,csrf=csrf)[0],200)
             self.assertTrue((root/'projects/demo/public/images').is_dir())
 
+    def test_mqtt_actions_require_csrf_and_never_forward_broker_password(self):
+        cookie,csrf=self.login()
+        for action in ('mqtt-publish','mqtt-sample','mqtt-test'):
+            data={'action':action,'topic':'home/data','payload':'hello','password':'not-forwarded','host':'evil.example'}
+            with patch.object(server,'agent',return_value=(200,{'message':'ok'})) as broker:
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie)[0],403)
+                broker.assert_not_called()
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie,csrf=csrf)[0],200)
+                broker.assert_called_once_with({k:data[k] for k in ('action','topic','payload')})
+
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()
         self.assertEqual(self.req('POST', '/api/logout', {}, cookie=cookie, csrf=csrf)[0], 200)

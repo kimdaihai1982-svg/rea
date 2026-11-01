@@ -1,3 +1,40 @@
+# Giao diện người dùng không còn yêu cầu lệnh terminal
+
+Hướng dẫn trong dashboard đã thay bằng thao tác nút cho các chức năng thực sự có. Không còn
+khối sudo/SSH/Docker trong HTML cho người dùng. Chức năng chưa hoàn thiện phải ghi rõ, không
+thay bằng “hãy chạy lệnh” rồi coi như đã cung cấp GUI. Tài liệu cài đặt/bảo trì kỹ thuật vẫn dành
+cho quản trị hệ thống, không phải luồng dùng hằng ngày.
+
+## MQTT native qua domain
+
+Tab MQTT có form publish UTF-8 <=16 KiB, QoS 1, chỉ báo broker nhận sau khi có PUBACK đúng.
+Không retained và không tự retry vì timeout có thể đến sau broker đã nhận. Có form nhận cửa
+sổ 3 giây sau SUBACK, QoS 0, tối đa 20 tin/64 KiB. Hiển thị retained/binary rõ ràng. Không phải
+lịch sử hay kết nối streaming liên tục. Nhận tin giữ agent lock; không gửi từ tab khác đồng thời
+trong cùng cửa sổ, dùng thiết bị phát hoặc nút tự kiểm tra.
+
+Nút **Tự kiểm tra gửi / nhận** tự subscribe topic duy nhất maychu247/check/<random>, publish
+payload ngẫu nhiên qua kết nối thứ hai, đợi PUBACK và đối chiếu subscriber nhận đúng payload.
+Không cần client ngoài hoặc SSH. Kết quả chỉ chứng minh broker nội bộ, không chứng minh thiết
+bị thật, bridge Internet, ACL cho user khác hoặc worker ghi SQL.
+
+Backend MQTT 3.1.1 tự viết bằng stdlib, chỉ đích cố định 127.0.0.1:1884 và user mqttuser;
+password đọc từ .env ngay phía agent, không trả về trình duyệt, không đưa vào argv hay log.
+Không nhận host/port/password tùy ý từ client. Không có giao diện user/ACL hoặc TLS broker mới.
+Phiên sạch, ID ngẫu nhiên, giới hạn gói 64 KiB và deadline socket; không plugin/dependency mới.
+Session/Origin/CSRF vẫn bắt buộc, mọi publish có xác nhận, log chỉ ghi tên action chứ không
+payload/topic/credentials. Payload chứa lệnh có thể tác động thiết bị subscribed: chỉ admin tin cậy.
+
+Wire-level tests dùng socket loopback thật và broker fixture tối giản, không Mosquitto thật.
+Đã test CONNECT/CONNACK, SUBSCRIBE/SUBACK, QoS1 PUBACK, retained/binary, tự roundtrip, sai auth,
+sai ACK và giới hạn input. Không tuyên bố đã nghiệm thu Mosquitto/thiết bị/server production.
+
+Source mới cần quản trị viên triển khai qua updater hiện có; không thể tự thay code đang chạy
+chỉ bằng push GitHub. Chưa có web updater tự động. Người dùng thường không cần SSH cho file,
+tạo database, MQTT gửi/nhận, xem monitor và chạy backup sau khi bản này được triển khai.
+
+---
+
 # Hiện tại: dùng tab Tập tin không cần lệnh hoặc đăng nhập File Browser
 
 Trình quản lý file native đã có: mở thư mục, upload, tạo file/thư mục, soạn thảo và tải xuống

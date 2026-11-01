@@ -216,7 +216,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
@@ -226,6 +226,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 payload = {key: data.get(key) for key in ('action', 'name')}
             if data.get('action') in ('file-upload', 'file-save', 'file-mkdir'):
                 payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version')}
+            if data.get('action') in ('mqtt-publish', 'mqtt-sample', 'mqtt-test'):
+                payload = {key: data.get(key) for key in ('action', 'topic', 'payload')}
             status, result = agent(payload)
             return self.reply(status, result)
         except Exception:

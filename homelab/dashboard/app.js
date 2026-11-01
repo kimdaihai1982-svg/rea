@@ -75,8 +75,8 @@ document.querySelectorAll('[data-jump-tab]').forEach(b=>b.onclick=()=>document.q
 function showSiteCommands(site){
   if(!/^[a-z][a-z0-9-]{0,31}$/.test(site.name)){notify('Tên site không hợp lệ. Kiểm tra inventory qua SSH.');return;}
   $('#site-next').hidden=false;
-  $('#site-next-title').textContent='Triển khai dự án: '+site.name;
-  $('#site-next-code').textContent="sudo bash -c 'cd /opt/maychu247-v2/sites/"+site.name+" && docker compose config --quiet && docker compose up -d --build'";
+  $('#site-next-title').textContent='Cấu hình dự án: '+site.name;
+  $('#site-next-code').textContent='Thư mục cấu hình trên server: sites/'+site.name+' · Chưa xác minh deployment hoặc DNS.';
   $('#site-next').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function renderSites(inventory){
@@ -84,7 +84,7 @@ function renderSites(inventory){
   if(!inventory){$('#inventory-note').textContent='Chưa nhận inventory. Cần cập nhật cả UI và agent.';$('#site-count').textContent='Chưa xác minh';return;}
   $('#site-count').textContent=inventory.items.length+' cấu hình';
   $('#inventory-note').textContent=inventory.error||'Đọc từ metadata trên server. Không suy ra site đang chạy hoặc domain đã kết nối.';
-  inventory.items.forEach(site=>{const r=document.createElement('tr');textCell(r,site.name);textCell(r,site.domain);textCell(r,site.package);textCell(r,site.port);const c=textCell(r,'');const b=document.createElement('button');b.textContent='Xem lệnh triển khai';b.onclick=()=>showSiteCommands(site);c.append(b);$('#site-inventory').append(r);});
+  inventory.items.forEach(site=>{const r=document.createElement('tr');textCell(r,site.name);textCell(r,site.domain);textCell(r,site.package);textCell(r,site.port);const c=textCell(r,'');const b=document.createElement('button');b.textContent='Chi tiết cấu hình';b.onclick=()=>showSiteCommands(site);c.append(b);$('#site-inventory').append(r);});
   if(!inventory.items.length){const r=document.createElement('tr');textCell(r,'Chưa có cấu hình site riêng. Bấm Tạo website mới để bắt đầu.');$('#site-inventory').append(r);}
 }
 document.querySelectorAll('[data-service-action]').forEach(b=>b.onclick=()=>action({action:b.dataset.serviceAction,service:b.dataset.service}));
@@ -236,3 +236,32 @@ function clearFileSession(){
   $('#file-editor').hidden=true;$('#file-editor-text').value='';
   $('#new-file-content').value='';$('#new-file-name').value='';
 }
+
+// Real MQTT operations: no password field and no client-side broker credentials.
+$('#mqtt-publish-form').onsubmit=async e=>{
+  e.preventDefault();if(busy)return;
+  const topic=$('#mqtt-publish-topic').value,payload=$('#mqtt-payload').value;
+  if(new TextEncoder().encode(payload).length>16384){$('#mqtt-publish-result').textContent='Payload tối đa 16 KiB.';return;}
+  if(!confirm('Gửi tin MQTT THẬT tới '+topic+'? Thiết bị subscribe có thể thực thi nội dung này.'))return;
+  const button=e.currentTarget.querySelector('button[type="submit"]');busy=true;button.disabled=true;$('#mqtt-publish-result').textContent='Đang gửi, đợi broker PUBACK…';
+  try{const r=await request('/api/action',{action:'mqtt-publish',topic,payload});$('#mqtt-publish-result').textContent=r.message;}
+  catch(err){$('#mqtt-publish-result').textContent='Chưa xác nhận gửi thành công: '+err.message;}
+  finally{busy=false;button.disabled=false;}
+};
+$('#mqtt-sample-form').onsubmit=async e=>{
+  e.preventDefault();if(busy)return;
+  const button=e.currentTarget.querySelector('button[type="submit"]');busy=true;button.disabled=true;$('#mqtt-sample-result').textContent='Đang kết nối và nhận tối đa 3 giây sau SUBACK…';$('#mqtt-messages').replaceChildren();
+  try{
+    const r=await request('/api/action',{action:'mqtt-sample',topic:$('#mqtt-sample-topic').value});
+    $('#mqtt-sample-result').textContent=r.messages.length+' tin nhận được. '+r.message;
+    r.messages.forEach(m=>{const row=document.createElement('tr');textCell(row,new Date(m.time*1000).toLocaleTimeString('vi-VN'));textCell(row,m.topic);textCell(row,m.payload===null?'Binary (base64): '+m.binary_base64:m.payload);textCell(row,m.retained?'Có · có thể là tin cũ':'Không');$('#mqtt-messages').append(row);});
+    if(!r.messages.length){const row=document.createElement('tr');textCell(row,'Không có tin trong cửa sổ nhận. Không đồng nghĩa broker bị lỗi.');$('#mqtt-messages').append(row);}
+  }catch(err){$('#mqtt-sample-result').textContent='Nhận tin thất bại: '+err.message;}
+  finally{busy=false;button.disabled=false;}
+};
+$('#mqtt-test').onclick=async()=>{
+  if(busy)return;busy=true;$('#mqtt-test').disabled=true;$('#mqtt-test-result').textContent='Đang tự subscribe, publish và đối chiếu nội dung…';
+  try{const r=await request('/api/action',{action:'mqtt-test'});$('#mqtt-test-result').textContent=r.message+' Topic: '+r.topic;}
+  catch(e){$('#mqtt-test-result').textContent='Chưa đạt kiểm tra: '+e.message;}
+  finally{busy=false;$('#mqtt-test').disabled=false;}
+};
