@@ -40,3 +40,18 @@ $('#logout').onclick=async()=>{try{await request('/api/logout',{});}catch(e){not
 $('#refresh').onclick=refresh;$('#backup').onclick=()=>action({action:'backup'});
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.tab').forEach(x=>x.hidden=x.id!==b.dataset.tab);$('#title').textContent=b.textContent.slice(2).trim();});
 showWorkspace().catch(()=>showLogin());
+
+// Guide navigation changes only the local page; it never executes server commands.
+function openGuide(id){
+  const nav=document.querySelector('[data-tab="guide"]');
+  nav.click();
+  const step=document.getElementById(id);
+  if(step){step.open=true;step.scrollIntoView({behavior:'smooth',block:'start'});}
+}
+document.querySelectorAll('[data-open-guide]').forEach(b=>b.onclick=()=>openGuide(b.dataset.openGuide));
+document.querySelectorAll('.copy-command').forEach(b=>b.onclick=async()=>{
+  const code=b.previousElementSibling;
+  if(!code || code.tagName!=='PRE')return;
+  try{await navigator.clipboard.writeText(code.textContent);notify('Đã sao chép. Đọc kỹ rồi tự chạy ở đúng máy; dashboard không thực thi lệnh này.');}
+  catch{const range=document.createRange();range.selectNodeContents(code);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);notify('Trình duyệt chưa cho phép clipboard. Đã chọn nội dung; dùng Ctrl+C hoặc Sao chép.');}
+});

@@ -118,3 +118,24 @@ systemd lỗi; dùng phần rollback bên trên. Bộ cài mới (--install) v�
 
 Ảnh giao diện đẹp không chứng minh tính đầy đủ; v1 ưu tiên số liệu thật, auth và ranh giới quyền.
 Nghiệm thu các chức năng hiện có trước khi bổ sung GUI website/domain/MQTT ở bước tiếp theo.
+
+## Guided workspace — hướng dẫn tiếng Việt trong giao diện
+
+Tab **PHP / SQL / Files** có thẻ tác vụ, đường dẫn dự án, tài khoản mẫu không chứa mật khẩu
+và nút đi thẳng tới đúng phần hướng dẫn. Tab **Hướng dẫn sử dụng** gồm:
+
+1. SSH forwarding và phân biệt các tài khoản.
+2. File Browser: xem log khởi tạo, đổi mật khẩu; không reset bằng cách xóa volume.
+3. Tạo hello.php và kiểm tra website; không public phpinfo/.env.
+4. Adminer: MySQL/db/appuser/appdb, đọc riêng DB_PASSWORD trên SSH, import/export an toàn.
+5. Kuma: tạo monitor HTTP web:8080, TCP db:3306 và mqtt:1883; thông báo và kiểm tra Down/Up.
+6. MQTT Explorer qua SSH, giới hạn worker/ACL chưa tích hợp.
+7. Backup, timer, giới hạn COMPLETE và yêu cầu restore trên VM thử.
+
+Nút “Sao chép” chỉ đưa nội dung vào clipboard (hoặc chọn nội dung nếu trình duyệt chặn),
+**không thực thi lệnh**. Các câu lệnh đọc mật khẩu có cảnh báo, không gửi mật khẩu qua API.
+Không có checklist tự nhận hoàn thành, badge giả hoặc auto-login bên thứ ba. Giao diện bên
+trong các ứng dụng vẫn do từng dự án cung cấp; chọn ngôn ngữ trong ứng dụng nếu hỗ trợ.
+
+Cập nhật qua cùng mode `--update-dashboard`, giữ nguyên mật khẩu/tài khoản hiện có.
+Chỉ cập nhật source dashboard, không thay database, thiết lập Kuma hoặc theme app bên thứ ba.
