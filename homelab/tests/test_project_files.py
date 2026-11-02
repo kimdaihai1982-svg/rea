@@ -71,7 +71,7 @@ class FileWorkspaceTests(unittest.TestCase):
         self.assertEqual((self.root / 'projects/demo/public/new-dir').stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / 'projects/demo/public/new-dir/image.bin').stat().st_mode & 0o777, 0o644)
         self.assertIsNone(files.read(self.root, 'demo/public/new-dir/image.bin')['text'])
-        with self.assertRaises(ValueError): self.upload('demo/public/large.txt', b'a'*(files.MAX_FILE+1))
+        with self.assertRaises(ValueError): self.upload('demo/public/large.txt', b'a'*(files.MAX_UPLOAD+1))
         (self.root / 'projects/demo/public/huge').write_bytes(b'a'*(files.MAX_FILE+1))
         with self.assertRaises(ValueError): files.read(self.root, 'demo/public/huge')
 

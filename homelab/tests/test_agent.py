@@ -88,6 +88,18 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(status, 400)
             self.assertFalse((root / 'escape').exists())
 
+    def test_temporary_domain_generated_by_backend_not_unverified_public_hostname(self):
+        with patch.object(agent,'site_inventory',return_value={'items':[]}),patch.object(agent.subprocess,'run') as run:
+            run.return_value.returncode=0
+            result=agent.create_site({'name':'trial','domain_mode':'temporary','domain':'ignored.invalid','package':'starter','port':28995})
+            args=run.call_args.args[0]
+            self.assertIn('--temporary',args);self.assertIn('trial.preview.invalid',args)
+            self.assertNotIn('ignored.invalid',args)
+            self.assertIn('Chưa khởi động',result['message'])
+        with patch.object(agent.site_manager,'project',return_value=Path('/selected')),patch.object(agent.site_manager,'preview') as preview:
+            self.assertEqual(self.req({'action':'site-preview','name':'trial'})[0],400)
+            preview.assert_not_called()
+
     def test_folder_creation_readable_and_no_escape(self):
         root = Path(self.temp.name) / 'folder-stack'
         (root / 'projects').mkdir(parents=True)

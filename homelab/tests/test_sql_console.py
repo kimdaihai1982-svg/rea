@@ -41,3 +41,23 @@ class SQLTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as error:
             sql.bounded([sys.executable,'-c','import sys;sys.stderr.write("SECRET");sys.exit(1)'],'x',Path.cwd())
         self.assertNotIn('SECRET',str(error.exception))
+
+
+class SQLImportTests(unittest.TestCase):
+    def test_import_uses_appuser_stdin_binary_mode_no_local_infile_and_selected_root(self):
+        import base64
+        text='CREATE TABLE sample(id INT);\nINSERT INTO sample VALUES(1);'
+        with patch.object(sql,'bounded',return_value='') as run:
+            result=sql.import_file(Path('/selected/site'),'appdb',base64.b64encode(text.encode()).decode(),'IMPORT appdb')
+        command,statement,root=run.call_args.args
+        self.assertEqual(root,Path('/selected/site'));self.assertEqual(statement,text+'\n')
+        self.assertEqual(command[-1],'appdb');self.assertIn('-uappuser',command[-3])
+        self.assertIn('--binary-mode=1',command[-3]);self.assertIn('--local-infile=0',command[-3])
+        self.assertEqual(run.call_args.kwargs['seconds'],60)
+        self.assertNotIn(text,' '.join(command));self.assertIn('thành công',result['message'])
+    def test_import_rejects_system_db_binary_bad_base64_and_confirmation(self):
+        import base64
+        with patch.object(sql,'bounded') as run:
+            for database,content,confirmation in [('mysql','eA==','IMPORT mysql'),('appdb','eA==','RUN appdb'),('appdb','!','IMPORT appdb'),('appdb',base64.b64encode(b'\x00bad').decode(),'IMPORT appdb'),('appdb','/w==','IMPORT appdb')]:
+                with self.assertRaises(ValueError):sql.import_file(Path('/stack'),database,content,confirmation)
+            run.assert_not_called()

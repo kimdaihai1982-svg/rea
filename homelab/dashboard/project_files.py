@@ -7,6 +7,7 @@ import stat
 import secrets
 
 MAX_FILE = 1024 * 1024
+MAX_UPLOAD = 8 * 1024 * 1024
 MAX_EDIT = 200 * 1024
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
@@ -107,14 +108,14 @@ def write_all(fd, data):
 
 def upload(root, path, encoded):
     values = parts(path)
-    if not isinstance(encoded, str) or len(encoded) > 1400000:
-        raise ValueError('File upload tối đa 1 MiB')
+    if not isinstance(encoded, str) or len(encoded) > 11200000:
+        raise ValueError('File upload tối đa 8 MiB')
     try:
         data = base64.b64decode(encoded, validate=True)
     except ValueError:
         raise ValueError('Dữ liệu upload không hợp lệ')
-    if len(data) > MAX_FILE:
-        raise ValueError('File upload tối đa 1 MiB')
+    if len(data) > MAX_UPLOAD:
+        raise ValueError('File upload tối đa 8 MiB')
     parent = directory(root, values[:-1])
     fd = None
     created = False
@@ -269,3 +270,116 @@ def delete(root, path, confirmation):
     finally:
         for fd in (entry, trash, base, parent):
             if fd is not None: os.close(fd)
+
+
+def extract(root, path, target):
+    """Bounded ZIP extraction into an existing directory, exclusive files; rollback new entries."""
+    import io
+    import zipfile
+    import zlib
+    source = parts(path)
+    destination = parts(target, allow_root=True)
+    parent = directory(root, source[:-1])
+    fd = None
+    try:
+        fd = os.open(source[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_UPLOAD:
+            raise ValueError('ZIP phải là file thường tối đa 8 MiB')
+        content = bytearray()
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk: break
+            content.extend(chunk)
+            if len(content) > MAX_UPLOAD: raise ValueError('ZIP vượt 8 MiB')
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(parent)
+    check = directory(root, destination)
+    os.close(check)
+    created_files, created_dirs = [], []
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            members = archive.infolist()
+            if not members or len(members) > 1000: raise ValueError('ZIP cần 1–1000 mục')
+            files, folders, seen = [], set(), set()
+            total = 0
+            for member in members:
+                raw = member.filename
+                values = parts(raw[:-1] if member.is_dir() else raw)
+                if len(values) > 32 or member.orig_filename != raw:
+                    raise ValueError('ZIP có đường dẫn quá sâu hoặc chứa NUL')
+                parts('/'.join(destination + values))
+                # ZIP uses trailing slash directories; no links/devices/hidden/traversal.
+                kind = stat.S_IFMT(member.external_attr >> 16)
+                if (raw in seen or member.flag_bits & 1 or member.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
+                        or kind not in (0, stat.S_IFREG, stat.S_IFDIR)
+                        or (kind == stat.S_IFDIR and not member.is_dir())):
+                    raise ValueError('ZIP trùng tên, mã hóa, symlink/thiết bị hoặc kiểu nén chưa hỗ trợ')
+                seen.add(raw)
+                if member.file_size > MAX_UPLOAD: raise ValueError('Mỗi file giải nén tối đa 8 MiB')
+                total += member.file_size
+                if total > 32 * 1024 * 1024: raise ValueError('ZIP giải nén tối đa 32 MiB')
+                for i in range(1, len(values)): folders.add(tuple(values[:i]))
+                if member.is_dir(): folders.add(tuple(values))
+                else: files.append((member, values))
+                if len(folders) + len(files) > 1000: raise ValueError('ZIP vượt 1000 mục tính cả thư mục cha')
+            file_names = {tuple(values) for _, values in files}
+            if len(file_names) != len(files) or file_names & folders: raise ValueError('ZIP có tên file/thư mục xung đột')
+            # Preflight all collisions before writing; never overwrite existing content.
+            for values, is_file in [(list(folder), False) for folder in folders] + [(values, True) for _, values in files]:
+                try: parent = directory(root, destination + values[:-1])
+                except FileNotFoundError: continue
+                try:
+                    try: info = os.stat(values[-1], dir_fd=parent, follow_symlinks=False)
+                    except FileNotFoundError: continue
+                    if is_file or not stat.S_ISDIR(info.st_mode): raise ValueError('Tên đã tồn tại hoặc bị chặn: ' + '/'.join(values) + '. Không ghi đè; đổi thư mục đích hoặc xử lý file cũ trước.')
+                finally: os.close(parent)
+            for values in sorted(folders, key=lambda item: (len(item), item)):
+                full = destination + list(values)
+                parent = directory(root, full[:-1])
+                try:
+                    try:
+                        os.mkdir(full[-1], 0o755, dir_fd=parent)
+                        created_dirs.append(full)
+                    except FileExistsError: pass
+                    child = os.open(full[-1], FLAGS, dir_fd=parent)
+                    try:
+                        if full in created_dirs: os.fchmod(child, 0o755)
+                    finally: os.close(child)
+                finally: os.close(parent)
+            actual = 0
+            for member, values in files:
+                full = destination + values
+                parent = directory(root, full[:-1])
+                try:
+                    fd = os.open(full[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
+                    created_files.append(full)
+                    try:
+                        size = 0
+                        with archive.open(member) as stream:
+                            while True:
+                                chunk = stream.read(65536)
+                                if not chunk: break
+                                size += len(chunk); actual += len(chunk)
+                                if size > MAX_UPLOAD or actual > 32 * 1024 * 1024: raise ValueError('Vượt giới hạn dữ liệu giải nén')
+                                write_all(fd, chunk)
+                        os.fchmod(fd, 0o644)
+                        os.fsync(fd)
+                    finally: os.close(fd)
+                finally: os.close(parent)
+            return {'message': 'Đã giải nén ' + str(len(files)) + ' file vào projects/' + target + '. Không ghi đè, không tự chạy mã hoặc import SQL.', 'files': len(files)}
+    except BaseException as error:
+        failed = False
+        for values, is_file in [(values, True) for values in reversed(created_files)] + [(values, False) for values in reversed(created_dirs)]:
+            try:
+                parent = directory(root, values[:-1])
+                try:
+                    if is_file: os.unlink(values[-1], dir_fd=parent)
+                    else: os.rmdir(values[-1], dir_fd=parent)
+                finally: os.close(parent)
+            except OSError: failed = True
+        if failed: raise ValueError('Giải nén lỗi và chưa dọn hết mục mới; đọc lại thư mục trước khi thử lại') from None
+        if isinstance(error, (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError, EOFError)):
+            raise ValueError('ZIP hỏng hoặc kiểu nén/mã hóa chưa hỗ trợ; không giải nén thành công') from None
+        raise

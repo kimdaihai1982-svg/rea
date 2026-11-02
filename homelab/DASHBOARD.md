@@ -2,7 +2,7 @@
 
 ## Phạm vi hiện tại
 
-Đây là bản tiếp tục dashboard tự viết, **không cài aaPanel**, không thay Tunnel/DNS đang chạy.
+Đây là bản tiếp tục dashboard tự viết, **không cài aaPanel**, không thay Tunnel/DNS đang chạy. Có URL chạy thử qua container Quick Tunnel riêng, chỉ khi admin xác nhận công khai.
 Source/payload được kiểm thử ở môi trường phát triển không đồng nghĩa đã cài hoặc nghiệm thu
 trên server Ubuntu. Push GitHub không tự cập nhật server; chưa có web updater tự động.
 Cài/cập nhật ban đầu vẫn do quản trị viên có quyền trên máy thực hiện. Người dùng hằng ngày
@@ -12,9 +12,9 @@ quản lý các chức năng bên dưới bằng GUI, không SSH hay lấy passw
 |---|---|---|
 | Tổng quan | CPU/RAM/đĩa/uptime, trạng thái Compose, job | CPU mẫu đầu chưa có kết quả; không phải chứng nhận an toàn |
 | Dịch vụ | Start/stop/restart web, db, mqtt, adminer, files của stack chính | Có gián đoạn, không xóa container/volume |
-| Website & Domain | Tạo cấu hình, triển khai/build/start, dừng, kiểm tra HTTP origin site riêng | Không tự tạo DNS/Tunnel; không xác minh HTTPS/public domain |
-| File | Chọn stack/site, browse/upload/create/edit/download, xóa vào thùng rác, chmod mẫu | Không symlink/hidden/system path; chưa rename/unzip/restore GUI |
-| SQL | Chọn stack/site, tạo/xóa database, chạy SQL bằng appuser | Xóa DB vĩnh viễn; chưa GUI import/export lớn, user/ACL riêng |
+| Website & Domain | Tạo cấu hình, bật DB riêng, triển khai/build/start, dừng, kiểm tra origin, tạo/dừng URL tạm | Không tự tạo DNS/Tunnel; không xác minh HTTPS/public domain |
+| File | Chọn stack/site, browse/upload file/thư mục, ZIP extract, create/edit/download, trash/chmod | Không symlink/hidden/system path; chưa rename/restore GUI |
+| SQL | Chọn stack/site, tạo/xóa database, import .sql, chạy SQL bằng appuser | Xóa DB vĩnh viễn; import <=8 MiB, chưa export/user/ACL riêng |
 | MQTT | Publish QoS1, nhận cửa sổ ngắn, tự kiểm tra subscribe→publish→receive | Không worker MQTT→SQL, lịch sử liên tục hoặc user/ACL GUI |
 | Backup | Chạy backup-all, xem snapshot stack chính có COMPLETE | Chưa GUI restore/lịch/offsite; COMPLETE không chứng minh restore |
 | Giám sát | Probe cố định, sự kiện đổi trạng thái trong RAM | Không Kuma, không cảnh báo ngoài máy/IDS/HA |
@@ -45,6 +45,44 @@ Cổng origin chỉ loopback; không mở cổng/router/firewall ra Internet, kh
 PC để truy cập server. Đường đi công khai qua host Tunnel. Không tùy tiện đưa IP LAN vào service
 của connector bridge cũ; tài liệu PUBLIC-DOMAIN.md giải thích ranh giới network.
 
+## Luồng đưa dự án lên bằng GUI
+
+1. File → Website / domain → tạo site, chọn domain riêng hoặc URL tạm. Tạo cấu hình chưa bật
+   web/DNS. Mode tạm lưu `<name>.preview.invalid` làm metadata nội bộ, **không phải URL truy cập**.
+2. Bảng website → **Mã nguồn** mở đúng site/demo/public. Tải nhiều file hoặc cả thư mục; chọn
+   thư mục giữ đường dẫn con nhưng trình duyệt không gửi thư mục rỗng. Thư mục đích cấp trên
+   phải chưa tồn tại; không tự trộn/ghi đè. Lỗi giữa chừng có thể để lại một phần file/thư mục.
+3. ZIP: upload ZIP rồi bấm **Giải nén ZIP**, chọn thư mục đích đã có. Tối đa 8 MiB nén, 32 MiB
+   giải nén, 1000 mục kể cả thư mục cha, sâu 32 cấp; chỉ Store/Deflate. Không mã hóa, symlink,
+   hidden, absolute/traversal, NUL, thiết bị hoặc ghi đè. Nếu có index.php cũ phải tự xử lý trước
+   bằng GUI, không tự xóa file. Preflight xung đột và rollback mục mới nếu lỗi (không crash-atomic).
+   Không sửa file đồng thời bằng công cụ ngoài. Code PHP trong public có thể chạy ngay nếu web
+   đang bật: nên tắt web/URL công khai trong lúc cập nhật.
+4. **Tiếp: nạp dữ liệu SQL** → giữ đúng site → **Khởi động database đã chọn** (Compose up db,
+   đợi healthy; không bật web). Theo dõi Job ở đầu mọi tab. Chọn appdb hoặc schema bạn tạo →
+   chọn file .sql UTF-8 <=8 MiB → Nạp dữ liệu thật → xác nhận `IMPORT <database>`.
+5. Tạo bảng/dữ liệu xong → Website → Chạy / triển khai → Kiểm tra origin → dùng domain riêng
+   (Cloudflare GUI bên trên) hoặc **Tạo / đọc URL tạm**.
+
+### URL tạm thật, không tên miền giả
+
+Nút URL tạm yêu cầu `PUBLIC <site>` ở UI và agent. Chỉ site origin HTTP 200 được công khai.
+Agent chạy container `maychu247-preview-<site>` với cloudflare/cloudflared, fixed loopback origin,
+network host, read-only, cap-drop, CPU/RAM/PID/log limits; không token/env/mount host. Có thể tải
+image nếu chưa có. Nó độc lập với connector/Tunnel chính, không thay DNS, root maychu247.uk hoặc
+credential. Cần Internet tới Docker registry/Cloudflare; có thể bị giới hạn hoặc không cấp URL.
+
+URL `https://<random>.trycloudflare.com` chỉ được lấy từ log Quick Tunnel theo regex nghiêm ngặt,
+không tự đoán hostname, không trả log thô. Persist URL trong metadata nhưng ghi rõ có thể hết
+hiệu lực; không xác minh HTTPS từ ngoài chỉ vì Cloudflare đã cấp URL. Tác vụ lỗi sau start có thể
+để lại container công khai: dùng **Dừng URL tạm** để ngắt. Khi quản lý container có sẵn, xác minh
+label sở hữu, network và command; không đụng container lạ. Docker lỗi không được coi là đã dừng.
+
+Quick Tunnel là dịch vụ thử nghiệm bên ngoài, không domain sở hữu/SLA/địa chỉ cố định, không
+được bảo vệ bởi Access của dashboard. Ai có URL có thể vào; không dùng dữ liệu nhạy cảm hoặc
+production. Tắt URL tạm không đồng nghĩa tắt domain riêng khác. Không proxy app PHP dưới đường
+dẫn cùng origin dashboard để tránh app đọc session/API quản trị. Chỉ URL riêng origin khác.
+
 ## File workspace
 
 `project_files.py` dùng directory-relative fd và O_NOFOLLOW; chặn absolute/traversal, file ẩn,
@@ -53,7 +91,8 @@ control chars, symlink, FIFO/device. Chỉ dưới projects/ của stack/site đ
 không nhận root path từ browser và không fallback sang stack chính khi site sai/mất.
 
 - Browse tối đa 200 mục, quét tối đa 1000; mtime, kích thước và mode thực.
-- Upload/read tối đa 1 MiB; UTF-8 edit 200 KiB. Không upload ghi đè.
+- Upload mỗi file tối đa 8 MiB; read/download vẫn tối đa 1 MiB; UTF-8 edit 200 KiB.
+  Tải nhiều file/thư mục tối đa 1000 file/32 MiB mỗi lần, gửi tuần tự qua cùng session/CSRF. Không upload ghi đè.
 - Save kiểm tra SHA256 phiên bản, fsync và atomic replace, giữ nội dung trước ở
   .maychu247-history (ẩn, 0700/0600, tối đa 50 bản/thư mục). Không sửa đồng thời bằng công cụ
   ngoài; chưa có khóa liên tiến trình với external writer.
@@ -90,6 +129,15 @@ là lỗi, không hiển thị thành công một phần. Ngắt docker CLI khô
 DDL/autocommit hoặc nhiều statements có thể đã ghi trước lỗi; không tự retry hoặc tự rollback.
 Mã trả 0 không chứng minh có dòng thay đổi hay COMMIT transaction người dùng tự mở.
 Output/query dùng textContent, không render HTML.
+
+### Import SQL
+
+Import file qua base64 payload giới hạn 8 MiB, UTF-8 có thể có BOM, không gzip/ZIP/NUL; giới hạn
+HTTP action 12 MB. Appuser, binary-mode, local-infile=0 giống console, nhập qua bounded stdin,
+output <=256 KiB, deadline 60 giây, max_statement_time session 45 giây (user tin cậy có thể đổi).
+Không sửa dump/DEFINER/USE tự động; dump khác schema hoặc cần quyền cao có thể thất bại. Có thể
+đã nhập một phần khi lỗi/timeout; không auto-retry, không tự DROP/rollback. Chưa kiểm chứng dữ liệu
+với app chỉ vì CLI trả 0. Không mở root SQL cho nội dung upload. Không log filename/SQL/payload.
 
 ## MQTT native
 
@@ -134,8 +182,8 @@ filesystem file/upload/edit/hash/trash/chmod, scope không fallback, helper SQL 
 (input/output/limit/timeout/redaction), MQTT TCP framing fixture, site origin HTTP loopback thật
 (no redirects), lifecycle argv/job lock và updater bind/readiness/rollback contracts.
 
-Docker/MariaDB lifecycle/query được mock trong suite; MQTT fixture không phải Mosquitto thật.
-`test_dashboard_ui.cjs` dùng jsdom + mock API để kiểm tra DOM click/forms, chọn scope, text-only
+Docker/MariaDB lifecycle/query/import và Quick Tunnel được mock trong suite; MQTT fixture không phải Mosquitto thật.
+`test_dashboard_ui.cjs` dùng jsdom + mock API để kiểm tra DOM click/forms, chọn scope, ZIP/folder/import forms, text-only
 output và logout. Nó không phải Chromium/browser acceptance hay kết quả trên server cài thật.
 JS syntax, shell syntax và portable --check là kiểm tra tĩnh/gói, không deployment proof.
 

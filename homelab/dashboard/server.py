@@ -174,7 +174,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(415, {'error': 'Cần JSON'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            limit = 1500000 if self.path == '/api/action' else 4096
+            limit = 12000000 if self.path == '/api/action' else 4096
             if not 0 < length <= limit:
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
@@ -216,25 +216,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'sql-query', 'delete-database', 'site-start', 'site-stop', 'site-check', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-query', 'delete-database', 'site-start', 'site-db-start', 'site-stop', 'site-check', 'site-preview', 'site-preview-stop', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
             if data.get('action') == 'create-site':
                 if PUBLIC_ORIGIN and str(data.get('domain', '')).lower().rstrip('.') == urlsplit(PUBLIC_ORIGIN).hostname:
                     return self.reply(400, {'error': 'Domain này đang dành cho dashboard. Không tạo website riêng trùng domain quản trị.'})
-                payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'package', 'port')}
+                payload = {key: data.get(key) for key in ('action', 'name', 'domain', 'domain_mode', 'package', 'port')}
             if data.get('action') in ('create-folder', 'create-database'):
                 payload = {key: data.get(key) for key in ('action', 'name')}
-            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod'):
-                payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version', 'mode', 'confirmation')}
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract'):
+                payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version', 'mode', 'confirmation', 'target')}
             if data.get('action') in ('mqtt-publish', 'mqtt-sample', 'mqtt-test'):
                 payload = {key: data.get(key) for key in ('action', 'topic', 'payload')}
-            if data.get('action') in ('sql-query', 'delete-database'):
-                payload = {key: data.get(key) for key in ('action', 'name', 'query', 'confirmation')}
-            if data.get('action') in ('site-start', 'site-stop', 'site-check'):
+            if data.get('action') in ('sql-query', 'delete-database', 'sql-import'):
+                payload = {key: data.get(key) for key in (('action', 'name', 'query', 'confirmation') if data.get('action') != 'sql-import' else ('action', 'name', 'content', 'confirmation'))}
+            if data.get('action') in ('site-start', 'site-db-start', 'site-stop', 'site-check', 'site-preview', 'site-preview-stop'):
                 payload = {key: data.get(key) for key in ('action', 'name')}
-            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'sql-query', 'delete-database', 'create-folder', 'create-database'):
+                if data.get('action') == 'site-preview': payload['confirmation'] = data.get('confirmation')
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-query', 'delete-database', 'create-folder', 'create-database'):
                 payload['site'] = data.get('site', '')
             status, result = agent(payload)
             return self.reply(status, result)

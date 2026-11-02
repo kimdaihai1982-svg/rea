@@ -6,6 +6,15 @@ Không cấp khách quyền Cockpit/File Browser của stack chính. Mỗi site 
 riêng, network riêng, MariaDB riêng, database `appdb`/user `appuser` nhưng secret khác nhau.
 Không chia sẻ PHP process hoặc DB instance giữa các site.
 
+## Chạy thử chưa có domain
+
+Trong form tạo site chọn URL tạm. Nó chỉ tạo metadata `.preview.invalid`, không phải DNS thật.
+Sau khi upload/giải nén source, bật riêng DB ở tab SQL để import .sql, rồi triển khai web và kiểm
+tra origin. Bấm Tạo / đọc URL tạm, xác nhận PUBLIC để Quick Tunnel cấp URL trycloudflare.com.
+Nút Dừng URL tạm ngắt container thử riêng, không thay connector chính. URL công khai, không có
+Access/SLA/địa chỉ ổn định, không dùng dữ liệu nhạy cảm. Xem DASHBOARD.md để biết giới hạn và
+trường hợp container có thể còn công khai sau timeout. Chưa nghiệm thu live Cloudflare từ suite.
+
 ## Gói mẫu
 
 | Gói | PHP CPU / RAM | DB CPU / RAM | DB connections |

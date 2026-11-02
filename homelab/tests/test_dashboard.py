@@ -89,7 +89,7 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.req('POST', '/api/action', payload, cookie=cookie)[0], 403)
             broker.assert_not_called()
             self.assertEqual(self.req('POST', '/api/action', payload, cookie=cookie, csrf=csrf)[0], 200)
-            broker.assert_called_once_with({k: payload[k] for k in ('action','name','domain','package','port')})
+            broker.assert_called_once_with({k: payload.get(k) for k in ('action','name','domain','domain_mode','package','port')})
 
     def test_public_domain_secure_cookie_and_origin_pairing(self):
         with patch.object(server, 'PUBLIC_ORIGIN', 'https://panel.example.com'):
@@ -211,6 +211,19 @@ class DashboardTests(unittest.TestCase):
         with patch.object(server,'PUBLIC_ORIGIN','https://maychu247.uk'),patch.object(server,'agent') as broker:
             self.assertEqual(self.req('POST','/api/action',{'action':'create-site','domain':'MAYCHU247.UK.'},cookie=cookie,csrf=csrf)[0],400)
             broker.assert_not_called()
+
+    def test_extract_import_preview_require_csrf_and_strip_host_and_password(self):
+        cookie,csrf=self.login()
+        for action in ('file-extract','sql-import','site-preview','site-preview-stop'):
+            data={'action':action,'site':'one','name':'one','path':'demo/code.zip','target':'demo/public','content':'U0VMRUNUIDE7','confirmation':'PUBLIC one','host':'evil','password':'SECRET','command':'id'}
+            with patch.object(server,'agent',return_value=(200,{'message':'ok'})) as broker:
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie)[0],403)
+                broker.assert_not_called()
+                self.assertEqual(self.req('POST','/api/action',data,cookie=cookie,csrf=csrf)[0],200)
+                forwarded=broker.call_args.args[0]
+                self.assertNotIn('host',forwarded);self.assertNotIn('password',forwarded);self.assertNotIn('command',forwarded)
+                if action in ('file-extract','sql-import'):self.assertEqual(forwarded['site'],'one')
+                if action=='site-preview':self.assertEqual(forwarded['confirmation'],'PUBLIC one')
 
     def test_logout_revokes_session(self):
         cookie, csrf = self.login()

@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--domain', required=True, type=domain_name)
     parser.add_argument('--package', choices=packages, default='starter')
     parser.add_argument('--port', type=int, required=True, help='Cổng loopback riêng, 20000..29999')
+    parser.add_argument('--temporary', action='store_true', help='Chờ URL tạm, domain .invalid chưa công khai')
     parser.add_argument('--write', action='store_true', help='Phê duyệt tạo file, không khởi động dịch vụ')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', args.name):

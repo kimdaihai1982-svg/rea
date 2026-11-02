@@ -77,3 +77,24 @@ def query(root, database, statement, confirmation):
                'sh', '-c', script, 'sql-console', database]
     output = bounded(command, statement + '\n', root)
     return {'output': output, 'message': 'MariaDB trả mã thành công. Không có dòng kết quả không có nghĩa đã thay đổi dữ liệu; COMMIT/ROLLBACK theo SQL đã nhập. User appuser dùng chung quyền trên các database đã cấp.'}
+
+
+def import_file(root, database, encoded, confirmation):
+    import base64
+    database = name(database)
+    if confirmation != 'IMPORT ' + database:
+        raise ValueError('Cần xác nhận IMPORT và tên database đích')
+    if not isinstance(encoded, str) or not encoded or len(encoded) > 11200000:
+        raise ValueError('File .sql UTF-8 tối đa 8 MiB')
+    try:
+        data = base64.b64decode(encoded, validate=True)
+        if not data or len(data) > 8 * 1024 * 1024: raise ValueError('File .sql tối đa 8 MiB')
+        text = data.decode('utf-8-sig')
+    except (ValueError, UnicodeError):
+        raise ValueError('Chỉ nhận file SQL UTF-8, tối đa 8 MiB; không ZIP/gzip hoặc file nhị phân') from None
+    if '\x00' in text: raise ValueError('File SQL không được chứa NUL')
+    # Same least-privileged client boundary as query, longer bounded import deadline.
+    script = 'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb --connect-timeout=3 --binary-mode=1 --local-infile=0 --skip-reconnect --default-character-set=utf8mb4 --init-command="SET SESSION max_statement_time=45" --quick --batch -uappuser --database="$1"'
+    command = ['docker', 'compose', '--project-directory', str(root), 'exec', '-T', 'db', 'sh', '-c', script, 'sql-import', database]
+    output = bounded(command, text + '\n', root, seconds=60)
+    return {'output': output, 'message': 'MariaDB xác nhận kết thúc import thành công. Chưa xác minh dữ liệu đúng với ứng dụng. Dump có USE/tên database khác sẽ theo quyền appuser; kiểm tra bảng/dữ liệu trước khi chạy website.'}

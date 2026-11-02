@@ -70,6 +70,8 @@ def site_inventory():
             value = json.loads(metadata.read_text())
             items.append({'name': folder.name, 'domain': value['domain'],
                           'package': value['package'], 'port': value['port'],
+                          'temporary': bool(value.get('temporary')),
+                          'preview_url': value.get('preview_url') if site_manager.valid_preview(value.get('preview_url')) else None,
                           'deployment': 'Chỉ xác nhận có cấu hình; chưa kiểm tra container/DNS'})
             if len(items) >= 100:
                 return {'items': items, 'error': 'Chỉ hiển thị tối đa 100 site. Danh sách chưa đầy đủ.'}
@@ -80,6 +82,10 @@ def site_inventory():
 
 def create_site(req):
     # Domain/package/port ownership belongs to create-site.py; do not generate shell/YAML here.
+    if req.get('domain_mode') == 'temporary':
+        if not isinstance(req.get('name'), str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', req['name']):
+            raise ValueError('Tên site không hợp lệ')
+        req = dict(req, domain=req['name'] + '.preview.invalid')
     values = {}
     for key, limit in [('name', 32), ('domain', 253), ('package', 32)]:
         value = req.get(key)
@@ -93,7 +99,7 @@ def create_site(req):
         raise ValueError('Đã đạt giới hạn 100 cấu hình site')
     result = subprocess.run(['python3', str(ROOT / 'scripts/create-site.py'),
                              '--domain', values['domain'], '--package', values['package'],
-                             '--port', str(port), '--write', '--', values['name']],
+                             '--port', str(port), '--write', *(['--temporary'] if req.get('domain_mode') == 'temporary' else []), '--', values['name']],
                             cwd=ROOT, capture_output=True, text=True, timeout=20)
     if result.returncode:
         raise ValueError('Không tạo được. Kiểm tra tên (a-z, số, dấu -), domain, cấu hình, cổng và các giá trị trùng. Không ghi đè site cũ.')
@@ -213,7 +219,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 1500000:
+            if not 0 < length <= 12000000:
                 raise ValueError('Yêu cầu không hợp lệ')
             req = json.loads(self.rfile.read(length))
             action = req.get('action')
@@ -223,7 +229,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data = project_files.browse(site_manager.project(ROOT, req.get('site')), req.get('path', ''))
             elif action == 'file-read':
                 data = project_files.read(site_manager.project(ROOT, req.get('site')), req.get('path'))
-            elif action in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod'):
+            elif action in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract'):
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
                     raise ValueError('Đang backup hoặc thao tác khác; thử lại sau')
                 try:
@@ -231,6 +237,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         data = project_files.upload(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('content'))
                     elif action == 'file-save':
                         data = project_files.save(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('text'), req.get('version'))
+                    elif action == 'file-extract':
+                        data = project_files.extract(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('target', ''))
                     elif action == 'file-delete':
                         data = project_files.delete(site_manager.project(ROOT, req.get('site')), req.get('path'), req.get('confirmation'))
                     elif action == 'file-chmod':
@@ -253,11 +261,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
-            elif action in ('sql-query', 'delete-database'):
+            elif action in ('sql-query', 'delete-database', 'sql-import'):
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
                     raise ValueError('Đang có tác vụ quản lý; thử lại sau')
                 try:
-                    if action == 'sql-query':
+                    if action == 'sql-import':
+                        data = sql_console.import_file(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('content'), req.get('confirmation'))
+                    elif action == 'sql-query':
                         data = sql_console.query(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('query'), req.get('confirmation'))
                     else:
                         data = delete_database(req.get('name'), req.get('confirmation'), site_manager.project(ROOT, req.get('site')))
@@ -266,8 +276,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     LOCK.release()
             elif action == 'site-check':
                 data = site_manager.check(ROOT, req.get('name'))
-            elif action in ('site-start', 'site-stop'):
+            elif action in ('site-start', 'site-db-start', 'site-stop', 'site-preview', 'site-preview-stop'):
                 site_manager.project(ROOT, req.get('name'))
+                if action == 'site-preview' and req.get('confirmation') != 'PUBLIC ' + str(req.get('name')):
+                    raise ValueError('Cần xác nhận PUBLIC và tên site trước khi công khai URL tạm')
                 if not req.get('name'):
                     raise ValueError('Chỉ quản lý site riêng; stack chính dùng tab Dịch vụ')
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
@@ -275,10 +287,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 JOB.update(state='running', message='Đang ' + action + ' cho ' + req['name'] + '. Có thể cần tải image/build trong vài phút.')
                 def work(name=req['name'], operation=action):
                     try:
-                        result = site_manager.lifecycle(ROOT, name, operation)
+                        result = site_manager.preview(ROOT, name, operation) if operation in ('site-preview', 'site-preview-stop') else site_manager.lifecycle(ROOT, name, operation)
                         JOB.update(state='done', message=name + ': ' + result['message'])
                     except Exception:
-                        JOB.update(state='error', message=name + ': chưa xác nhận tác vụ hoàn tất. Kiểm tra origin/trạng thái trước khi thử lại; không xóa dữ liệu.')
+                        JOB.update(state='error', message=name + (': chưa xác nhận URL tạm. Container có thể vẫn công khai; bấm Dừng URL tạm để ngắt. Không ảnh hưởng Tunnel chính.' if operation in ('site-preview', 'site-preview-stop') else ': chưa xác nhận tác vụ hoàn tất. Kiểm tra origin/trạng thái trước khi thử lại; không xóa dữ liệu.'))
                     finally:
                         LOCK.release()
                 try:
@@ -299,7 +311,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     rows = [json.loads(line) for line in out.splitlines() if line.strip()]
                 # Return only selected non-secret state, never ambient environment.
                 data = {'services': [{k: row.get(k, '') for k in ['Service', 'State', 'Health', 'Status']}
-                                     for row in rows], 'snapshots': snapshots(), 'job': dict(JOB), 'site_inventory': site_inventory()}
+                                     for row in rows], 'snapshots': snapshots(), 'job': (dict(JOB) if not LOCK.locked() or JOB['state'] == 'running' else {'state': 'running', 'message': 'Đang xử lý file/SQL/MQTT. Đợi hoàn tất trước khi backup hoặc cập nhật.'}), 'site_inventory': site_inventory()}
             elif action in ('start', 'stop', 'restart'):
                 svc = req.get('service')
                 if svc not in SERVICES:

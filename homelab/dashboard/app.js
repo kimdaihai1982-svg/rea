@@ -5,7 +5,7 @@ let csrf = '', polling, busy = false, toastTimer;
 function notify(text) { $('#toast').textContent=text; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,7000); }
 async function request(path, data) {
   const epoch=authEpoch;
-  const scoped=['file-upload','file-save','file-mkdir','file-delete','file-chmod','sql-query','delete-database','create-folder','create-database'];
+  const scoped=['file-upload','file-save','file-mkdir','file-delete','file-chmod','file-extract','sql-import','sql-query','delete-database','create-folder','create-database'];
   if(data && scoped.includes(data.action))data={...data,site:activeSite};
   if(path==='/api/resources')path+='?site='+encodeURIComponent(activeSite);
   const options={headers:{}};
@@ -31,7 +31,7 @@ async function refresh(){
     $('#disk').textContent=bytes(h.disk_used)+' / '+bytes(h.disk_total);$('#disk-bar').style.width=(100*h.disk_used/h.disk_total)+'%';
     $('#running').textContent=data.services.filter(s=>s.State==='running').length+' / '+data.services.length;
     $('#uptime').textContent=Math.floor(h.uptime_seconds/86400)+' ngày '+Math.floor(h.uptime_seconds%86400/3600)+' giờ';
-    $('#job').textContent=data.job.state+' · '+data.job.message;$('#backup').disabled=data.job.state==='running';
+    $('#job').textContent=data.job.state+' · '+data.job.message;$('#global-job').textContent='Tác vụ: '+data.job.state+' · '+data.job.message;$('#backup').disabled=data.job.state==='running';
     $('#service-list').replaceChildren();$('#health-list').replaceChildren();
     data.services.forEach(s=>{const r=document.createElement('tr');textCell(r,s.Service);textCell(r,s.State);textCell(r,s.Health||'Không khai báo healthcheck');const c=textCell(r,'');
       if(['web','db','mqtt','adminer','files'].includes(s.Service))['start','stop','restart'].forEach(a=>{const b=document.createElement('button');b.textContent={start:'Chạy',stop:'Dừng',restart:'Khởi động lại'}[a];b.disabled=data.job.state==='running';b.onclick=()=>action({action:a,service:s.Service});c.append(b);});$('#service-list').append(r);
@@ -91,20 +91,20 @@ function renderSites(inventory){
   $('#site-count').textContent=inventory.items.length+' cấu hình';
   $('#inventory-note').textContent=inventory.error||'Đọc từ metadata trên server. Không suy ra site đang chạy hoặc domain đã kết nối.';
   renderScopes(inventory.items);
-  inventory.items.forEach(site=>{const r=document.createElement('tr');textCell(r,site.name);textCell(r,site.domain);textCell(r,site.package);textCell(r,site.port);const c=textCell(r,'');const b=document.createElement('button');b.textContent='Chi tiết cấu hình';b.onclick=()=>showSiteCommands(site);c.append(b);[['site-start','Chạy / triển khai'],['site-stop','Dừng'],['site-check','Kiểm tra origin']].forEach(([op,label])=>{const control=document.createElement('button');control.textContent=label;control.disabled=busy;control.onclick=()=>siteOperation(site,op);c.append(control);});$('#site-inventory').append(r);});
+  inventory.items.forEach(site=>{const r=document.createElement('tr');textCell(r,site.name);const address=textCell(r,site.temporary?'URL tạm: chưa được cấp':site.domain);if(/^https:\/\/[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com$/.test(site.preview_url||'')){address.textContent='';const link=document.createElement('a');link.href=site.preview_url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=site.preview_url;address.append(link);const note=document.createElement('small');note.textContent=' URL đã cấp, có thể hết hiệu lực; không dùng production.';address.append(note);}textCell(r,site.package);textCell(r,site.port);const c=textCell(r,'');const b=document.createElement('button');b.textContent='Chi tiết cấu hình';b.onclick=()=>showSiteCommands(site);c.append(b);[['files','Mã nguồn'],['sql','Dữ liệu SQL']].forEach(([tab,label])=>{const open=document.createElement('button');open.textContent=label;open.onclick=()=>selectSiteWorkspace(site,tab);c.append(open);});[['site-start','Chạy / triển khai'],['site-stop','Dừng'],['site-check','Kiểm tra origin'],['site-preview','Tạo / đọc URL tạm'],['site-preview-stop','Dừng URL tạm']].forEach(([op,label])=>{const control=document.createElement('button');control.textContent=label;control.onclick=()=>siteOperation(site,op);c.append(control);});$('#site-inventory').append(r);});
   if(!inventory.items.length){const r=document.createElement('tr');textCell(r,'Chưa có cấu hình site riêng. Bấm Tạo website mới để bắt đầu.');$('#site-inventory').append(r);}
 }
 document.querySelectorAll('[data-service-action]').forEach(b=>b.onclick=()=>action({action:b.dataset.serviceAction,service:b.dataset.service}));
-$('#new-site').onclick=()=>{$('#site-form-error').textContent='';$('#site-dialog').showModal();};
+$('#new-site').onclick=()=>{$('#site-form-error').textContent='';$('#site-domain-mode').onchange();$('#site-dialog').showModal();};
 $('#close-site').onclick=()=>{if(!$('#site-submit').disabled)$('#site-dialog').close();};
 $('#site-dialog').addEventListener('cancel',e=>{if($('#site-submit').disabled)e.preventDefault();});
 $('#site-form').onsubmit=async e=>{
   e.preventDefault();if(busy)return;
   const form=new FormData(e.currentTarget);
-  const data={action:'create-site',name:String(form.get('name')).trim(),domain:String(form.get('domain')).trim().toLowerCase(),package:String(form.get('package')),port:Number(form.get('port'))};
+  const data={action:'create-site',name:String(form.get('name')).trim(),domain:String(form.get('domain')||'').trim().toLowerCase(),domain_mode:String(form.get('domain_mode')),package:String(form.get('package')),port:Number(form.get('port'))};
   if(!confirm('Tạo cấu hình thật cho '+data.name+'? Chưa chạy website hoặc tạo DNS.'))return;
   busy=true;$('#site-submit').disabled=true;$('#site-form-error').textContent='';
-  try{const result=await request('/api/action',data);$('#site-dialog').close();$('#site-form').reset();notify(result.message);await refresh();showSiteCommands(data);}
+  try{const result=await request('/api/action',data);$('#site-dialog').close();$('#site-form').reset();$('#site-domain-mode').onchange();notify(result.message);await refresh();showSiteCommands(data);}
   catch(err){$('#site-form-error').textContent=err.message;}
   finally{busy=false;$('#site-submit').disabled=false;}
 };
@@ -173,7 +173,7 @@ async function loadFiles(path){
   try{
     const data=await request('/api/files?path='+encodeURIComponent(path)+'&site='+encodeURIComponent(activeSite));if(sequence!==fileSequence)return;
     filePath=data.path;breadCrumbs(filePath);$('#native-file-list').replaceChildren();$('#file-up').disabled=!filePath;
-    data.entries.forEach(item=>{const row=document.createElement('tr'),cell=textCell(row,'');const b=document.createElement('button');b.className='file-entry';b.textContent=(item.kind==='directory'?'▱ ':item.kind==='file'?'▤ ':'⛔ ')+item.name;b.disabled=item.kind==='blocked';b.onclick=()=>item.kind==='directory'?loadFiles(joined(filePath,item.name)):openProjectFile(joined(filePath,item.name));cell.append(b);textCell(row,{directory:'Thư mục',file:'File',blocked:'Không cho truy cập'}[item.kind]);textCell(row,item.kind==='file'?readableSize(item.bytes):'—');textCell(row,new Date(item.mtime*1000).toLocaleString('vi-VN'));const tools=textCell(row,item.mode||'');if(item.kind!=='blocked'){const path=joined(filePath,item.name);[['file-chmod','Đổi quyền'],['file-delete','Xóa']].forEach(([op,label])=>{const control=document.createElement('button');control.textContent=label;control.onclick=()=>fileManage(path,item.kind,op,item.mode);tools.append(control);});}$('#native-file-list').append(row);});
+    data.entries.forEach(item=>{const row=document.createElement('tr'),cell=textCell(row,'');const b=document.createElement('button');b.className='file-entry';b.textContent=(item.kind==='directory'?'▱ ':item.kind==='file'?'▤ ':'⛔ ')+item.name;b.disabled=item.kind==='blocked';b.onclick=()=>item.kind==='directory'?loadFiles(joined(filePath,item.name)):openProjectFile(joined(filePath,item.name));cell.append(b);textCell(row,{directory:'Thư mục',file:'File',blocked:'Không cho truy cập'}[item.kind]);textCell(row,item.kind==='file'?readableSize(item.bytes):'—');textCell(row,new Date(item.mtime*1000).toLocaleString('vi-VN'));const tools=textCell(row,item.mode||'');if(item.kind!=='blocked'){const path=joined(filePath,item.name);[['file-chmod','Đổi quyền'],['file-delete','Xóa'],...(item.kind==='file'&&item.name.toLowerCase().endsWith('.zip')?[['file-extract','Giải nén ZIP']]:[])].forEach(([op,label])=>{const control=document.createElement('button');control.textContent=label;control.onclick=()=>fileManage(path,item.kind,op,item.mode);tools.append(control);});}$('#native-file-list').append(row);});
     if(!data.entries.length){const row=document.createElement('tr');textCell(row,'Thư mục chưa có file. Dùng Tải file lên hoặc File văn bản.');$('#native-file-list').append(row);}
     $('#file-message').textContent=data.truncated?'Chỉ hiển thị 200 mục đầu; hãy chia thành các thư mục nhỏ.':'Đang mở: projects'+(filePath?'/'+filePath:'')+' · '+data.entries.length+' mục';
   }catch(e){if(sequence===fileSequence){$('#file-message').textContent='Không đọc được thư mục mới; đường dẫn đang mở chưa thay đổi. '+e.message;notify(e.message);}}
@@ -193,7 +193,7 @@ async function openProjectFile(path){
 }
 async function uploadProjectFile(name,bytes){
   if(!name||name.includes('/')||name.includes('\\')||name.startsWith('.'))throw new Error('Tên file không hợp lệ; không dùng file ẩn hoặc đường dẫn.');
-  if(bytes.length>1024*1024)throw new Error('Chỉ upload file tối đa 1 MiB.');
+  if(bytes.length>8*1024*1024)throw new Error('Chỉ upload file tối đa 8 MiB.');
   let binary='';for(let start=0;start<bytes.length;start+=8192)binary+=String.fromCharCode(...bytes.subarray(start,start+8192));
   const result=await request('/api/action',{action:'file-upload',path:joined(filePath,name),content:btoa(binary)});
   notify(result.message);
@@ -215,12 +215,35 @@ $('#file-download').onclick=()=>{
   const url=URL.createObjectURL(new Blob([data],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=fileData.path.split('/').pop();a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 $('#file-upload').onchange=async e=>{
-  const file=e.target.files[0];if(!file)return;
+  const files=Array.from(e.target.files||[]);if(!files.length)return;
   if(busy||fileLoading){e.target.value='';notify('Đợi tác vụ hiện tại hoàn tất.');return;}
-  if(file.size>1024*1024){e.target.value='';notify('Chỉ upload file tối đa 1 MiB.');return;}
-  if(!confirm('Upload file thật '+file.name+' vào projects/'+filePath+'? Không ghi đè tên trùng.')){e.target.value='';return;}
-  busy=true;$('#file-message').textContent='Đang tải file lên…';
-  try{await uploadProjectFile(file.name,new Uint8Array(await file.arrayBuffer()));}catch(err){notify(err.message);}
+  if(files.length>1000||files.some(f=>f.size>8*1024*1024)||files.reduce((n,f)=>n+f.size,0)>32*1024*1024){notify('Mỗi file tối đa 8 MiB, tổng 32 MiB/1000 file.');e.target.value='';return;}
+  if(!confirm('Tải '+files.length+' file vào projects/'+filePath+'? Không ghi đè. Lỗi có thể sau khi đã tải một phần.')){e.target.value='';return;}
+  busy=true;let completed=0;
+  try{for(const file of files){$('#file-message').textContent='Đang tải '+(completed+1)+'/'+files.length+': '+file.name;await uploadProjectFile(file.name,new Uint8Array(await file.arrayBuffer()));completed++;}notify('Đã tải '+completed+' file.');}
+  catch(err){notify('Đã tải '+completed+'/'+files.length+' file. '+err.message+' Không tự chạy lại.');}
+  finally{busy=false;e.target.value='';loadFiles(filePath);}
+};
+$('#folder-upload').onchange=async e=>{
+  const files=Array.from(e.target.files||[]);if(!files.length)return;
+  if(busy||fileLoading){e.target.value='';notify('Đợi tác vụ hiện tại hoàn tất.');return;}
+  const paths=files.map(file=>String(file.webkitRelativePath||'').split('/')),top=paths[0][0];
+  if(files.length>1000||files.reduce((n,f)=>n+f.size,0)>32*1024*1024||files.some(f=>f.size>8*1024*1024)||paths.some(p=>p.length<2||p.length>32||p[0]!==top||p.some(part=>!part||part.startsWith('.')||/[\\:\x00-\x1f\x7f]/.test(part)))){notify('Thư mục tối đa 1000 file/32 MiB, mỗi file 8 MiB, sâu 32 cấp. Không file ẩn/đường dẫn đặc biệt. Dùng ZIP nếu cần thư mục rỗng.');e.target.value='';return;}
+  if(!confirm('Tải thư mục '+top+' vào projects/'+filePath+'? Tên thư mục đích phải chưa tồn tại. Lỗi có thể để lại dữ liệu tải một phần.')){e.target.value='';return;}
+  busy=true;let completed=0;const made=new Set();
+  try{
+    for(let i=0;i<files.length;i++){
+      const parts=paths[i];
+      for(let depth=1;depth<parts.length;depth++){
+        const relative=parts.slice(0,depth).join('/');if(made.has(relative))continue;
+        await request('/api/action',{action:'file-mkdir',path:joined(filePath,relative)});made.add(relative);
+      }
+      $('#file-message').textContent='Đang tải thư mục '+(i+1)+'/'+files.length;
+      const data=new Uint8Array(await files[i].arrayBuffer());let raw='';for(let pos=0;pos<data.length;pos+=8192)raw+=String.fromCharCode(...data.subarray(pos,pos+8192));
+      await request('/api/action',{action:'file-upload',path:joined(filePath,parts.join('/')),content:btoa(raw)});completed++;
+    }
+    notify('Đã tải '+completed+' file trong '+top+'.');
+  }catch(err){notify('Đã tải '+completed+'/'+files.length+' file; có thể còn thư mục mới. '+err.message+' Không tự tải lại cùng tên.');}
   finally{busy=false;e.target.value='';loadFiles(filePath);}
 };
 $('#file-mkdir').onclick=async()=>{
@@ -243,7 +266,7 @@ $('#new-file-form').onsubmit=async e=>{
 function clearFileSession(){
   fileSequence++;fileData=null;activeSite='';filePath='';
   document.querySelectorAll('[data-project-scope]').forEach(select=>select.replaceChildren(new Option('Stack chính','')));
-  $('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
+  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
   $('#mqtt-messages').replaceChildren();
   document.querySelectorAll('dialog[open]').forEach(d=>d.close());
   $('#file-editor').hidden=true;$('#file-editor-text').value='';
@@ -292,14 +315,17 @@ document.querySelectorAll('[data-project-scope]').forEach(select=>select.onchang
   if(busy||!leaveEditor()){select.value=activeSite;notify('Chưa đổi phạm vi; hoàn tất thao tác hoặc lưu file trước.');return;}
   activeSite=select.value;filePath='';fileSequence++;
   document.querySelectorAll('[data-project-scope]').forEach(other=>other.value=activeSite);
-  $('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';
+  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';
   $('#sql-database').replaceChildren(new Option('Chọn database',''));
   refreshResources();if(!$('#files').hidden)loadFiles('');
 });
 async function fileManage(path,kind,op,currentMode){
   if(busy||fileLoading||!leaveEditor())return;
   const data={action:op,path};
-  if(op==='file-delete'){
+  if(op==='file-extract'){
+    data.target=prompt('Giải nén ZIP vào đường dẫn tương đối trong projects/ (thư mục phải có sẵn). Không ghi đè; tối đa 1000 mục/32 MiB. Có mã PHP thì website có thể chạy mã ngay.',filePath);
+    if(data.target===null)return;
+  }else if(op==='file-delete'){
     data.confirmation=prompt('Xóa khỏi projects/'+path+' trong '+(activeSite||'Stack chính')+'? Có thể làm website ngừng chạy. Chuyển vào thùng rác riêng, chưa có nút phục hồi. Nhập lại chính xác đường dẫn: '+path);
     if(data.confirmation!==path)return;
   }else{
@@ -323,6 +349,7 @@ async function deleteDatabase(name){
 $('#sql-form').onsubmit=async e=>{
   e.preventDefault();if(busy)return;
   const name=$('#sql-database').value,query=$('#sql-query').value;
+  if(!name){notify('Chọn database đích trước khi chạy SQL.');$('#sql-database').focus();return;}
   if(new TextEncoder().encode(query).length>8192){notify('SQL tối đa 8 KiB.');return;}
   const confirmation=prompt('Chạy SQL THẬT trong '+(activeSite||'Stack chính')+' / '+name+'? Có thể thay đổi/xóa dữ liệu, appuser dùng chung quyền trong stack này. Nhập RUN '+name+' để xác nhận:');
   if(confirmation!=='RUN '+name)return;
@@ -333,12 +360,46 @@ $('#sql-form').onsubmit=async e=>{
 };
 async function siteOperation(site,op){
   if(busy)return;
-  if(op!=='site-check'&&!confirm((op==='site-start'?'Build/khởi động web + database':'Dừng web + database')+' cho '+site.name+'? Có thể gián đoạn site. Không xóa volume.'))return;
+  let confirmation;
+  if(op==='site-preview'){confirmation=prompt('CÔNG KHAI website '+site.name+' qua URL trycloudflare.com. Không có Access của dashboard, không ổn định; bất kỳ ai có URL có thể truy cập. Không dùng dữ liệu nhạy cảm. Nhập PUBLIC '+site.name+':');if(confirmation!=='PUBLIC '+site.name)return;}
+  if(!['site-check','site-preview'].includes(op)&&!confirm((op==='site-start'?'Build/khởi động web + database':op==='site-preview-stop'?'Dừng URL tạm công khai':'Dừng web + database')+' cho '+site.name+'? Có thể gián đoạn site. Không xóa volume.'))return;
   busy=true;
   try{
-    const result=await request('/api/action',{action:op,name:site.name});
+    const result=await request('/api/action',{action:op,name:site.name,confirmation});
     showSiteCommands(site);$('#site-next-code').textContent=result.message+' '+(result.origin?'Origin: '+result.origin:'Origin dự kiến: http://127.0.0.1:'+site.port)+' · Domain: '+site.domain;
     notify(result.message);
   }catch(e){notify(e.message);}
   finally{busy=false;await refresh();}
 }
+
+$('#site-domain-mode').onchange=()=>{const temporary=$('#site-domain-mode').value==='temporary';$('#site-domain').required=!temporary;$('#site-domain').disabled=temporary;};
+$('#sql-import-form').onsubmit=async e=>{
+  e.preventDefault();if(busy)return;const file=$('#sql-import-file').files[0],name=$('#sql-database').value;
+  if(!name){notify('Chọn database đích trước khi nạp file.');$('#sql-database').focus();return;}
+  if(!file||!file.name.toLowerCase().endsWith('.sql')||file.size>8*1024*1024){notify('Chọn file .sql UTF-8 tối đa 8 MiB.');return;}
+  const confirmation=prompt('NẠP SQL THẬT vào '+(activeSite||'Stack chính')+' / '+name+'. File có thể DROP/thay đổi dữ liệu và dùng database khác theo quyền appuser. Lỗi có thể để lại một phần, không tự chạy lại. Nhập IMPORT '+name+':');
+  if(confirmation!=='IMPORT '+name)return;
+  const button=e.currentTarget.querySelector('button[type="submit"]');busy=true;button.disabled=true;$('#sql-import-status').textContent='Đang nhập dữ liệu, tối đa 60 giây…';$('#sql-output').textContent='';
+  try{const data=new Uint8Array(await file.arrayBuffer());let raw='';for(let pos=0;pos<data.length;pos+=8192)raw+=String.fromCharCode(...data.subarray(pos,pos+8192));const result=await request('/api/action',{action:'sql-import',name,content:btoa(raw),confirmation});$('#sql-import-status').textContent=result.message;$('#sql-output').textContent=result.output;}
+  catch(error){$('#sql-import-status').textContent='Chưa xác nhận nạp thành công: '+error.message+' Không tự nạp lại.';}
+  finally{busy=false;button.disabled=false;$('#sql-import-file').value='';await refreshResources();}
+};
+
+$('#file-create-site').onclick=()=>{if(busy)return;document.querySelector('[data-tab="sites"]').click();$('#new-site').click();};
+function selectSiteWorkspace(site,tab){
+  if(busy||!leaveEditor())return;
+  activeSite=site.name;filePath='demo/public';fileSequence++;
+  document.querySelectorAll('[data-project-scope]').forEach(select=>select.value=activeSite);
+  $('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
+  document.querySelector('[data-tab="'+tab+'"]').click();
+}
+
+$('#sql-start-db').onclick=async()=>{
+  if(busy)return;
+  if(!activeSite){await action({action:'start',service:'db'});return;}
+  if(!confirm('Khởi động riêng database của '+activeSite+'? Chưa bật website/URL công khai.'))return;
+  busy=true;$('#sql-start-db').disabled=true;
+  try{const result=await request('/api/action',{action:'site-db-start',name:activeSite});$('#sql-import-status').textContent=result.message;notify(result.message);}
+  catch(error){$('#sql-import-status').textContent=error.message;}
+  finally{busy=false;$('#sql-start-db').disabled=false;await refresh();await refreshResources();}
+};
