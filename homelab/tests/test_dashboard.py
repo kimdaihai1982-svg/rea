@@ -214,7 +214,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_extract_import_preview_require_csrf_and_strip_host_and_password(self):
         cookie,csrf=self.login()
-        for action in ('file-extract','sql-import','site-preview','site-preview-stop'):
+        for action in ('file-extract','sql-import','sql-export','site-preview','site-preview-stop'):
             data={'action':action,'site':'one','name':'one','path':'demo/code.zip','target':'demo/public','content':'U0VMRUNUIDE7','confirmation':'PUBLIC one','host':'evil','password':'SECRET','command':'id'}
             with patch.object(server,'agent',return_value=(200,{'message':'ok'})) as broker:
                 self.assertEqual(self.req('POST','/api/action',data,cookie=cookie)[0],403)
@@ -222,7 +222,7 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(self.req('POST','/api/action',data,cookie=cookie,csrf=csrf)[0],200)
                 forwarded=broker.call_args.args[0]
                 self.assertNotIn('host',forwarded);self.assertNotIn('password',forwarded);self.assertNotIn('command',forwarded)
-                if action in ('file-extract','sql-import'):self.assertEqual(forwarded['site'],'one')
+                if action in ('file-extract','sql-import','sql-export'):self.assertEqual(forwarded['site'],'one')
                 if action=='site-preview':self.assertEqual(forwarded['confirmation'],'PUBLIC one')
 
     def test_logout_revokes_session(self):

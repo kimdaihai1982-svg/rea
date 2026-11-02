@@ -14,7 +14,7 @@ quản lý các chức năng bên dưới bằng GUI, không SSH hay lấy passw
 | Dịch vụ | Start/stop/restart web, db, mqtt, adminer, files của stack chính | Có gián đoạn, không xóa container/volume |
 | Website & Domain | Tạo cấu hình, bật DB riêng, triển khai/build/start, dừng, kiểm tra origin, tạo/dừng URL tạm | Không tự tạo DNS/Tunnel; không xác minh HTTPS/public domain |
 | File | Chọn stack/site, browse/upload file/thư mục, ZIP extract, create/edit/download, trash/chmod | Không symlink/hidden/system path; chưa rename/restore GUI |
-| SQL | Chọn stack/site, tạo/xóa database, import .sql, chạy SQL bằng appuser | Xóa DB vĩnh viễn; import <=8 MiB, chưa export/user/ACL riêng |
+| SQL | Chọn stack/site, tạo/xóa database, import/export .sql, chạy SQL bằng appuser | Xóa DB vĩnh viễn; import/export <=8 MiB, chưa user/ACL riêng |
 | MQTT | Publish QoS1, nhận cửa sổ ngắn, tự kiểm tra subscribe→publish→receive | Không worker MQTT→SQL, lịch sử liên tục hoặc user/ACL GUI |
 | Backup | Chạy backup-all, xem snapshot stack chính có COMPLETE | Chưa GUI restore/lịch/offsite; COMPLETE không chứng minh restore |
 | Giám sát | Probe cố định, sự kiện đổi trạng thái trong RAM | Không Kuma, không cảnh báo ngoài máy/IDS/HA |
@@ -138,6 +138,24 @@ output <=256 KiB, deadline 60 giây, max_statement_time session 45 giây (user t
 Không sửa dump/DEFINER/USE tự động; dump khác schema hoặc cần quyền cao có thể thất bại. Có thể
 đã nhập một phần khi lỗi/timeout; không auto-retry, không tự DROP/rollback. Chưa kiểm chứng dữ liệu
 với app chỉ vì CLI trả 0. Không mở root SQL cho nội dung upload. Không log filename/SQL/payload.
+
+### Export SQL về PC
+
+Khu vực Nhập / xuất có hai nút Chọn file .sql để nạp và Xuất .sql về PC, dùng chung dropdown
+schema và stack/site hiện tại. POST sql-export cần session/Host/Origin/CSRF và xác nhận EXPORT
+đúng tên; không GET công khai hoặc đường dẫn dump tùy ý. Backend mariadb-dump **appuser**, không
+root, đúng một schema đã validate; password qua MYSQL_PWD, không argv/API/log. Single-transaction,
+quick, skip-lock-tables, hex-blob, utf8mb4; gồm cấu trúc, dữ liệu, triggers, không routines/events,
+user/grant hoặc schema khác. Không bảo đảm snapshot MyISAM hoặc khi có DDL/external writer.
+DEFINER trên view/trigger có thể cần quyền khi phục hồi; không tự sửa dữ liệu dump.
+
+Dump dùng bounded binary pipes 60 giây/8 MiB để giữ nguyên bytes; vượt giới hạn/nonzero/empty là
+lỗi, không trả dump một phần hoặc tạo file giả. Agent response cap 12 MB để đủ base64 8 MiB.
+JSON no-store, audit chỉ action/time. Response có filename tên schema + UTC, bytes, SHA256 và
+base64; không ghi dump vào public web hoặc lưu lịch sử SQL trên server. Browser tạo Blob tải
+.sql về PC, không render nội dung, và nói rõ chỉ yêu cầu download (cần kiểm tra Downloads).
+Chưa thử restore/live MariaDB ở môi trường này. Test command boundaries/mock dump, pipe bytes
+thật, CSRF/scoping và DOM download thành công/thất bại; không phải kiểm thử backup server thật.
 
 ## MQTT native
 

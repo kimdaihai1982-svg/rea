@@ -261,11 +261,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(json.dumps({'event': action, 'time': time.time()}), flush=True)
                 finally:
                     LOCK.release()
-            elif action in ('sql-query', 'delete-database', 'sql-import'):
+            elif action in ('sql-query', 'delete-database', 'sql-import', 'sql-export'):
                 if JOB['state'] == 'running' or not LOCK.acquire(blocking=False):
                     raise ValueError('Đang có tác vụ quản lý; thử lại sau')
                 try:
-                    if action == 'sql-import':
+                    if action == 'sql-export':
+                        data = sql_console.export_file(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('confirmation'))
+                    elif action == 'sql-import':
                         data = sql_console.import_file(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('content'), req.get('confirmation'))
                     elif action == 'sql-query':
                         data = sql_console.query(site_manager.project(ROOT, req.get('site')), req.get('name'), req.get('query'), req.get('confirmation'))

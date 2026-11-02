@@ -5,7 +5,7 @@ let csrf = '', polling, busy = false, toastTimer;
 function notify(text) { $('#toast').textContent=text; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,7000); }
 async function request(path, data) {
   const epoch=authEpoch;
-  const scoped=['file-upload','file-save','file-mkdir','file-delete','file-chmod','file-extract','sql-import','sql-query','delete-database','create-folder','create-database'];
+  const scoped=['file-upload','file-save','file-mkdir','file-delete','file-chmod','file-extract','sql-import','sql-export','sql-query','delete-database','create-folder','create-database'];
   if(data && scoped.includes(data.action))data={...data,site:activeSite};
   if(path==='/api/resources')path+='?site='+encodeURIComponent(activeSite);
   const options={headers:{}};
@@ -266,7 +266,7 @@ $('#new-file-form').onsubmit=async e=>{
 function clearFileSession(){
   fileSequence++;fileData=null;activeSite='';filePath='';
   document.querySelectorAll('[data-project-scope]').forEach(select=>select.replaceChildren(new Option('Stack chính','')));
-  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
+  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-export-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
   $('#mqtt-messages').replaceChildren();
   document.querySelectorAll('dialog[open]').forEach(d=>d.close());
   $('#file-editor').hidden=true;$('#file-editor-text').value='';
@@ -315,7 +315,7 @@ document.querySelectorAll('[data-project-scope]').forEach(select=>select.onchang
   if(busy||!leaveEditor()){select.value=activeSite;notify('Chưa đổi phạm vi; hoàn tất thao tác hoặc lưu file trước.');return;}
   activeSite=select.value;filePath='';fileSequence++;
   document.querySelectorAll('[data-project-scope]').forEach(other=>other.value=activeSite);
-  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';
+  $('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-export-status').textContent='';$('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';
   $('#sql-database').replaceChildren(new Option('Chọn database',''));
   refreshResources();if(!$('#files').hidden)loadFiles('');
 });
@@ -390,7 +390,7 @@ function selectSiteWorkspace(site,tab){
   if(busy||!leaveEditor())return;
   activeSite=site.name;filePath='demo/public';fileSequence++;
   document.querySelectorAll('[data-project-scope]').forEach(select=>select.value=activeSite);
-  $('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
+  $('#sql-query').value='';$('#sql-output').textContent='';$('#sql-status').textContent='';$('#sql-import-file').value='';$('#sql-import-status').textContent='';$('#sql-export-status').textContent='';$('#sql-database').replaceChildren(new Option('Chọn database',''));
   document.querySelector('[data-tab="'+tab+'"]').click();
 }
 
@@ -402,4 +402,21 @@ $('#sql-start-db').onclick=async()=>{
   try{const result=await request('/api/action',{action:'site-db-start',name:activeSite});$('#sql-import-status').textContent=result.message;notify(result.message);}
   catch(error){$('#sql-import-status').textContent=error.message;}
   finally{busy=false;$('#sql-start-db').disabled=false;await refresh();await refreshResources();}
+};
+
+$('#sql-pick-import').onclick=()=>{if(!busy)$('#sql-import-file').click();};
+$('#sql-export').onclick=async()=>{
+  if(busy)return;const name=$('#sql-database').value;
+  if(!name){notify('Chọn database cần xuất trước.');$('#sql-database').focus();return;}
+  if(!confirm('Xuất database '+(activeSite||'Stack chính')+' / '+name+' thành file SQL tải về PC? File chứa dữ liệu nhạy cảm, không chia sẻ công khai.'))return;
+  busy=true;$('#sql-export').disabled=true;$('#sql-export-status').textContent='Đang xuất database, tối đa 60 giây…';
+  try{
+    const result=await request('/api/action',{action:'sql-export',name,confirmation:'EXPORT '+name});
+    const raw=atob(result.content),data=Uint8Array.from(raw,c=>c.charCodeAt(0));
+    if(data.length!==result.bytes||!/^[a-z][a-z0-9_]{0,31}-[0-9]{8}T[0-9]{6}Z\.sql$/.test(result.filename))throw new Error('Dữ liệu tải về không hợp lệ; không tạo file.');
+    const url=URL.createObjectURL(new Blob([data],{type:'application/sql'})),link=document.createElement('a');
+    link.href=url;link.download=result.filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    $('#sql-export-status').textContent=result.message+' File: '+result.filename+' · '+readableSize(result.bytes)+' · SHA256: '+result.sha256+'. Đã yêu cầu trình duyệt tải xuống; kiểm tra mục Downloads.';
+  }catch(error){$('#sql-export-status').textContent='Chưa tải được file sao lưu: '+error.message;}
+  finally{busy=false;$('#sql-export').disabled=false;}
 };

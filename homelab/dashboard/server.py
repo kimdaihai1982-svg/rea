@@ -78,7 +78,7 @@ def agent(data):
     try:
         conn.request('POST', '/', body=json.dumps(data), headers={'Content-Type': 'application/json'})
         res = conn.getresponse()
-        return res.status, json.loads(res.read(8500000))
+        return res.status, json.loads(res.read(12000000))
     finally:
         conn.close()
 
@@ -216,7 +216,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, {}, cookie='session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + self.secure_cookie())
         if self.path != '/api/action':
             return self.reply(404, {'error': 'Không tìm thấy'})
-        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-query', 'delete-database', 'site-start', 'site-db-start', 'site-stop', 'site-check', 'site-preview', 'site-preview-stop', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
+        if data.get('action') not in ('start', 'stop', 'restart', 'backup', 'create-site', 'create-folder', 'create-database', 'file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-export', 'sql-query', 'delete-database', 'site-start', 'site-db-start', 'site-stop', 'site-check', 'site-preview', 'site-preview-stop', 'mqtt-publish', 'mqtt-sample', 'mqtt-test'):
             return self.reply(400, {'error': 'Thao tác chưa hỗ trợ'})
         try:
             payload = {'action': data.get('action'), 'service': data.get('service')}
@@ -230,12 +230,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 payload = {key: data.get(key) for key in ('action', 'path', 'content', 'text', 'version', 'mode', 'confirmation', 'target')}
             if data.get('action') in ('mqtt-publish', 'mqtt-sample', 'mqtt-test'):
                 payload = {key: data.get(key) for key in ('action', 'topic', 'payload')}
-            if data.get('action') in ('sql-query', 'delete-database', 'sql-import'):
+            if data.get('action') in ('sql-query', 'delete-database', 'sql-import', 'sql-export'):
                 payload = {key: data.get(key) for key in (('action', 'name', 'query', 'confirmation') if data.get('action') != 'sql-import' else ('action', 'name', 'content', 'confirmation'))}
+            if data.get('action') == 'sql-export':
+                payload = {key: data.get(key) for key in ('action', 'name', 'confirmation')}
             if data.get('action') in ('site-start', 'site-db-start', 'site-stop', 'site-check', 'site-preview', 'site-preview-stop'):
                 payload = {key: data.get(key) for key in ('action', 'name')}
                 if data.get('action') == 'site-preview': payload['confirmation'] = data.get('confirmation')
-            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-query', 'delete-database', 'create-folder', 'create-database'):
+            if data.get('action') in ('file-upload', 'file-save', 'file-mkdir', 'file-delete', 'file-chmod', 'file-extract', 'sql-import', 'sql-export', 'sql-query', 'delete-database', 'create-folder', 'create-database'):
                 payload['site'] = data.get('site', '')
             status, result = agent(payload)
             return self.reply(status, result)
